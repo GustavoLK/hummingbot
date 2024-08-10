@@ -21,8 +21,8 @@ OPTIONS = [
 ]
 
 
-class BalanceCommand:
-    def balance(self,  # type: HummingbotApplication
+class BalanceglkCommand:
+    def balanceglk(self,  # type: HummingbotApplication
                 option: str = None,
                 args: List[str] = None
                 ):
@@ -72,13 +72,13 @@ class BalanceCommand:
                 self.notify(f"Paper balance for {asset} token set to {amount}")
                 self.save_client_config()
 
-    async def show_balances_glk(
+    async def show_balances(
         self  # type: HummingbotApplication
     ):
         global_token_symbol = self.client_config_map.global_token.global_token_symbol
         total_col_name = f"Total ({global_token_symbol})"
         sum_not_for_show_name = "sum_not_for_show"
-        self.notify("Updating balances, please wait...")
+        self.notify("Updating GLK balances, please wait...")
         network_timeout = float(self.client_config_map.commands_timeout.other_commands_timeout)
         try:
             all_ex_bals = await asyncio.wait_for(

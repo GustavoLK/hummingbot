@@ -64,6 +64,12 @@ def load_parser(hummingbot: "HummingbotApplication", command_tabs) -> [ThrowingA
     balance_parser.add_argument("args", nargs="*")
     balance_parser.set_defaults(func=hummingbot.balance)
 
+    balance_parser = subparsers.add_parser("balanceglk", help="Display your GLK asset balances across all connected exchanges")
+    balance_parser.add_argument("option", nargs="?", choices=["limit", "paper"], default=None,
+                                help="Option for balance configuration")
+    balance_parser.add_argument("args", nargs="*")
+    balance_parser.set_defaults(func=hummingbot.balanceglk)
+
     config_parser = subparsers.add_parser("config", help="Display the current bot's configuration")
     config_parser.add_argument("key", nargs="?", default=None, help="Name of the parameter you want to change")
     config_parser.add_argument("value", nargs="?", default=None, help="New value for the parameter")

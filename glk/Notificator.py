@@ -1,26 +1,14 @@
-import dbus
+from datetime import datetime
+import pytz
 
 
 class Notificator:
-
-    @staticmethod
-    def send_kde_notification(summary, body='', actions=[], replaces_id=0):
-        # Get the session bus
-        bus = dbus.SessionBus()
-        # Get the notification object
-        obj = bus.get_object('org.freedesktop.Notifications', '/org/freedesktop/Notifications')
-        # Get the interface
-        interface = dbus.Interface(obj, dbus_interface='org.freedesktop.Notifications')
-        # Send the notification
-        notification_id = interface.Notify("GLK Trading", replaces_id, "dialog-information", summary, body, actions, {},
-                                           10000)
-        # Write the notification message to the file
-        with open('/tmp/hummingbot.txt', 'w') as file:
-            file.write(f"Summary: {summary}\nBody: {body}")
-        return notification_id
+    local_tz = pytz.timezone('America/Buenos_Aires')
 
     @staticmethod
     def notify(summary, body):
-        Notificator.send_kde_notification(summary, body)
-
-
+        delimiter = "=" * 40
+        current_time_local = datetime.now(Notificator.local_tz)
+        formatted_time = current_time_local.strftime('%Y-%m-%d %H:%M:%S')
+        with open('/tmp/hummingbot.txt', 'a') as file:
+            file.write(f"{delimiter}\n{formatted_time}\nSummary: {summary}\nBody: {body}\n\n")

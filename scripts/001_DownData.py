@@ -17,9 +17,9 @@ class DownloadCandles(ScriptStrategyBase):
     use it in production based on candles needed to compute technical indicators.
     """
     exchange = os.getenv("EXCHANGE", "binance_perpetual")
-    trading_pairs = os.getenv("TRADING_PAIRS", "BTC-USDT").split(",")
-    intervals = os.getenv("INTERVALS", "1d").split(",")
-    days_to_download = int(os.getenv("DAYS_TO_DOWNLOAD", "365"))
+    trading_pairs = os.getenv("TRADING_PAIRS", "ETH-USDT").split(",")
+    intervals = os.getenv("INTERVALS", "4h").split(",")
+    days_to_download = int(os.getenv("DAYS_TO_DOWNLOAD", "1095"))
     # we can initialize any trading pair since we only need the candles
     markets = {"binance_paper_trade": {"BTC-USDT"}}
 

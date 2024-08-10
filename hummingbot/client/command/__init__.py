@@ -18,9 +18,11 @@ from .start_command import StartCommand
 from .status_command import StatusCommand
 from .stop_command import StopCommand
 from .ticker_command import TickerCommand
+from .balanceglk_command import BalanceglkCommand
 
 __all__ = [
     BalanceCommand,
+    BalanceglkCommand,
     ConfigCommand,
     ConnectCommand,
     CreateCommand,

@@ -36,7 +36,7 @@ class GLKTrailingStopConfig(StrategyV2ConfigBase):
             prompt=lambda mi: "Enter the leverage (e.g. 20): ",
             prompt_on_new=True))
     position_mode: PositionMode = Field(
-        default="ONEWAY",
+        default="HEDGE",
         client_data=ClientFieldData(
             prompt=lambda mi: "Enter the position mode (HEDGE/ONEWAY): ",
             prompt_on_new=True
@@ -124,6 +124,12 @@ class GLKTrailingStop(StrategyV2Base):
         self._last_timestamp = timestamp
         self.last_action_timestamp = datetime.now().timestamp()
         self.apply_initial_setting()
+
+
+    # def on_tick(self):
+    #     balance_df = self.get_balance_df()
+    #     balance_df.to_csv(path_or_buf="~/tmp/balance.csv")
+
 
     def get_signal(self):
         if not os.path.exists(self.signal_file):
