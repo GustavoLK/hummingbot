@@ -2,19 +2,19 @@ import logging
 from decimal import Decimal
 from typing import Dict
 
-from hummingbot.connector.connector_base import ConnectorBase
-
+from glk.Notificator import Notificator
 from hummingbot.client.hummingbot_application import HummingbotApplication
+from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionMode
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
 from hummingbot.strategy.strategy_py_base import (
     BuyOrderCompletedEvent,
     BuyOrderCreatedEvent,
+    OrderCancelledEvent,
     OrderFilledEvent,
     SellOrderCompletedEvent,
-    SellOrderCreatedEvent, OrderCancelledEvent,
+    SellOrderCreatedEvent,
 )
-from glk.Notificator import Notificator
 
 
 class SimpleOrder(ScriptStrategyBase):
@@ -26,19 +26,19 @@ class SimpleOrder(ScriptStrategyBase):
     """
 
     # Key Parameters
-    exchange = "binance_perpetual"
-    order_amount_usd = Decimal(30)
+    exchange = "hyperliquid_perpetual"
+    order_amount_usd = Decimal(10)
     leverage = 5
 
-    trading_pair = "BTC-USDT"
-    base = "BTC"
-    quote = "USDT"
+    trading_pair = "ETH-USD"
+    base = "ETH"
+    quote = "USD"
 
-    side = "buy"
+    side = "sell"
     order_type = "limit"   # market or limit
-    spread = 0  # for limit orders only
+    spread = Decimal('0.02')  # for limit orders only
 
-    profitTarget = 0.20
+    profitTarget = 0.005
 
 
     # Internals
@@ -85,8 +85,6 @@ class SimpleOrder(ScriptStrategyBase):
             HummingbotApplication.main_application().stop()
 
 
-
-
         # if self.order_id is not None:
         #     self.counter += 1
         #     msg = f"TICK [{self.counter}]"
@@ -116,10 +114,11 @@ class SimpleOrder(ScriptStrategyBase):
             if order_type == OrderType.LIMIT_MAKER and self.side == "sell":
                 price = price + self.spread
 
-        self.logger().info(f"Creating Order with current price of {price}: {order_type} {self.side} Limit {price}")
+        str_log = f"Creating Order with current price of {price}: {order_type} {self.side} Limit {price}"
+        self.logger().info(str_log)
 
         # places order
-        Notificator().notify("Order created", "Nada")
+        Notificator().notify("Order created", str_log)
         if self.side == "sell":
             self.position_status = "opening"
             self.sell(
@@ -173,7 +172,7 @@ class SimpleOrder(ScriptStrategyBase):
 
 
     def did_fill_order(self, event: OrderFilledEvent):
-        msg = (f"{event.trade_type.name} {event.amount} of {event.trading_pair} {self.exchange} at {event.price}")
+        msg = f"{event.trade_type.name} {event.amount} of {event.trading_pair} {self.exchange} at {event.price}"
         self.log_with_clock(logging.INFO, msg)
         self.notify_hb_app_with_timestamp(msg)
         self.entryPrice = event.price
@@ -187,24 +186,24 @@ class SimpleOrder(ScriptStrategyBase):
 
 
     def did_complete_buy_order(self, event: BuyOrderCompletedEvent):
-        msg = (f"did_complete_buy_order Order {event.order_id} to buy {event.base_asset_amount} of {event.base_asset} is completed.")
+        msg = f"did_complete_buy_order Order {event.order_id} to buy {event.base_asset_amount} of {event.base_asset} is completed."
         self.log_with_clock(logging.INFO, msg)
         self.notify_hb_app_with_timestamp(msg)
 
     def did_complete_sell_order(self, event: SellOrderCompletedEvent):
-        msg = (f"did_complete_sell_order Order {event.order_id} to sell {event.base_asset_amount} of {event.base_asset} is completed.")
+        msg = f"did_complete_sell_order Order {event.order_id} to sell {event.base_asset_amount} of {event.base_asset} is completed."
         self.log_with_clock(logging.INFO, msg)
         self.notify_hb_app_with_timestamp(msg)
 
     def did_create_buy_order(self, event: BuyOrderCreatedEvent):
         self.order_id = event.order_id
-        msg = (f"did_create_buy_order Created BUY order {event.order_id}")
+        msg = f"did_create_buy_order Created BUY order {event.order_id}"
         self.log_with_clock(logging.INFO, msg)
         self.notify_hb_app_with_timestamp(msg)
 
     def did_create_sell_order(self, event: SellOrderCreatedEvent):
         self.order_id = event.order_id
-        msg = (f"did_create_sell_order Created SELL order {event.order_id}")
+        msg = f"did_create_sell_order Created SELL order {event.order_id}"
         self.log_with_clock(logging.INFO, msg)
         self.notify_hb_app_with_timestamp(msg)
 

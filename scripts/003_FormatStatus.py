@@ -33,7 +33,7 @@ class FormatStatusExample(ScriptStrategyBase):
 
     def get_market_status_df_with_depth(self):
         market_status_df = self.market_status_data_frame(self.get_market_trading_pair_tuples())
-        market_status_df["Exchange"] = market_status_df.apply(lambda x: x["Exchange"].strip("PaperTrade") + "paper_trade", axis=1)
+        market_status_df["Exchange"] = market_status_df.apply(lambda x: x["Exchange"].strip("PaperTrade"), axis=1)
         market_status_df["Volume (+1%)"] = market_status_df.apply(lambda x: self.get_volume_for_percentage_from_mid_price(x, 0.01), axis=1)
         market_status_df["Volume (-1%)"] = market_status_df.apply(lambda x: self.get_volume_for_percentage_from_mid_price(x, -0.01), axis=1)
         return market_status_df

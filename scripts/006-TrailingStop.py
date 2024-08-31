@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import pandas_ta as ta  # noqa: F401
 from pydantic import Field, validator
@@ -10,15 +10,16 @@ from glk.Notificator import Notificator
 from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.clock import Clock
-from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType, PositionSide
-from hummingbot.core.event.events import OrderFilledEvent, BuyOrderCreatedEvent, SellOrderCreatedEvent
+from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
+from hummingbot.core.event.events import BuyOrderCreatedEvent, OrderFilledEvent, SellOrderCreatedEvent
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesConfig
-from hummingbot.smart_components.executors.position_executor.data_types import (
-    PositionExecutorConfig,
-    TripleBarrierConfig, TrailingStop,
-)
-from hummingbot.smart_components.models.executor_actions import CreateExecutorAction, StopExecutorAction
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
+from hummingbot.strategy_v2.executors.position_executor.data_types import (
+    PositionExecutorConfig,
+    TrailingStop,
+    TripleBarrierConfig,
+)
+from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction
 
 
 class GLKTrailingStopConfig(StrategyV2ConfigBase):
@@ -125,11 +126,9 @@ class GLKTrailingStop(StrategyV2Base):
         self.last_action_timestamp = datetime.now().timestamp()
         self.apply_initial_setting()
 
-
     # def on_tick(self):
     #     balance_df = self.get_balance_df()
     #     balance_df.to_csv(path_or_buf="~/tmp/balance.csv")
-
 
     def get_signal(self):
         if not os.path.exists(self.signal_file):
@@ -233,21 +232,17 @@ class GLKTrailingStop(StrategyV2Base):
                         connector.set_leverage(trading_pair, self.config.leverage)
             self.account_config_set = True
 
-
     def did_create_buy_order(self, event: BuyOrderCreatedEvent):
-        msg = (f"GLK Created BUY order {event.type}")
+        msg = f"GLK Created BUY order {event.type}"
         self.logger().info(msg)
-
 
     def did_create_sell_order(self, event: SellOrderCreatedEvent):
-        msg = (f"GLK Created SELL order {event.type}")
+        msg = f"GLK Created SELL order {event.type}"
         self.logger().info(msg)
 
-
     def did_fill_order(self, event: OrderFilledEvent):
-        msg = (f"{event.trade_type.name} {event.amount} of {event.trading_pair} at {event.price}")
+        msg = f"{event.trade_type.name} {event.amount} of {event.trading_pair} at {event.price}"
         Notificator().notify("Order filled", msg)
-
 
     # Here I copied the implementation of this method in the parent class but commenting the reference to stop the
     # executor orchestrator because this cause all working orders to be cancelled and, more important, closes the current

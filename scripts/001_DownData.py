@@ -18,7 +18,7 @@ class DownloadCandles(ScriptStrategyBase):
     """
     exchange = os.getenv("EXCHANGE", "binance_perpetual")
     trading_pairs = os.getenv("TRADING_PAIRS", "ETH-USDT").split(",")
-    intervals = os.getenv("INTERVALS", "4h").split(",")
+    intervals = os.getenv("INTERVALS", "5m").split(",")
     days_to_download = int(os.getenv("DAYS_TO_DOWNLOAD", "1095"))
     # we can initialize any trading pair since we only need the candles
     markets = {"binance_paper_trade": {"BTC-USDT"}}
