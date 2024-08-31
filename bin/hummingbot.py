@@ -1,5 +1,17 @@
 #!/usr/bin/env python
 
+import os
+
+remote_debugging = os.environ.get('PYTHON_REMOTE_DEBUGGING')
+if remote_debugging and remote_debugging == '1':
+    import ptvsd
+    debugging_port = 5678
+    print(f"Remote debugging enabled on port {debugging_port}. Program will not start until debugger is attached")
+    # Allow other computers to attach to ptvsd at this IP address and port.
+    ptvsd.enable_attach(address=('0.0.0.0', debugging_port))
+    # Pause the program until a remote debugger is attached
+    ptvsd.wait_for_attach()
+
 import asyncio
 from typing import Coroutine, List, Optional
 from weakref import ReferenceType, ref

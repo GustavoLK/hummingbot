@@ -14,6 +14,7 @@ from hummingbot.strategy_v2.controllers.directional_trading_controller_base impo
 )
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
 
+
 # Esto funciona hasta ahi, no anda lo de setear el take profit de cada orden. Las ordenes dan error en  Hyperliquid
 
 class BollingerBandsControllerConfig(DirectionalTradingControllerConfigBase):
