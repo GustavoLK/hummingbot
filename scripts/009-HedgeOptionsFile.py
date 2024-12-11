@@ -13,7 +13,7 @@ from pydantic import Field
 from glk.Notificator import Notificator
 from hummingbot.client.hummingbot_application import HummingbotApplication
 from hummingbot.connector.connector_base import ConnectorBase
-from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType
+from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
@@ -53,12 +53,14 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         "Pair-01": {
             "entry_price": None,
             "status": HedgingStatus.WAITING,
-            "last_df_index": None
+            "last_df_index": None,
+            "total_pnl": 0.00
         },
         "Pair-02": {
             "entry_price": None,
             "status": HedgingStatus.WAITING,
-            "last_df_index": None
+            "last_df_index": None,
+            "total_pnl": 0.00
         }
     }
 
@@ -113,6 +115,10 @@ class GLKHedgeOptionsFile(StrategyV2Base):
                 self.config_readed = yaml.safe_load(file)
                 self.last_conf_timestamp = datetime.now().timestamp()
 
+                # Si actualizo el archivo de configuracion reseteo los status
+                self.positions['Pair-01']['status'] = HedgingStatus.WAITING
+                self.positions['Pair-02']['status'] = HedgingStatus.WAITING
+
                 self.set_leverage('', 'Pair-01', self.config_readed['Pair-01']['leverage'])
                 self.set_leverage('', 'Pair-02', self.config_readed['Pair-02']['leverage'])
                 return True
@@ -137,13 +143,18 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         self.process_pair('Pair-02')
 
         current_time = datetime.now()
-        if current_time.second % 10 == 0 and len(self.df) == 0:
-            # self.generate_random_trades()
-            self.add_trade_to_df('Pair-01')
-            self.add_trade_to_df('Pair-02')
-        elif len(self.df) == 2:
-            self.update_trade_in_df('Pair-01')
-            self.update_trade_in_df('Pair-02')
+        # if current_time.second % 10 == 0 and len(self.df) == 0:
+        #     # self.generate_random_trades()
+        #     self.add_trade_to_df('Pair-01')
+        #     self.add_trade_to_df('Pair-02')
+        # elif len(self.df) == 2:
+        #     self.update_trade_in_df('Pair-01')
+        #     self.update_trade_in_df('Pair-02')
+
+        self.update_trade_in_df('Pair-01')
+        self.update_trade_in_df('Pair-02')
+        if len(self.df) > 0:
+            self.df.to_csv("data/HedgeOptions.csv")
 
         if self.positions['Pair-01']['status'] == HedgingStatus.STOPPED and self.positions['Pair-02']['status'] == HedgingStatus.STOPPED:
             self.logger().info(f"Stopping application")
@@ -275,16 +286,20 @@ class GLKHedgeOptionsFile(StrategyV2Base):
 
         if self.positions[pair]['status'] == HedgingStatus.OPENING_LONG:
             self.positions[pair]['status'] = HedgingStatus.OPENED_LONG
-            self.positions[pair]['entry_price'] = event.price
+            # self.positions[pair]['entry_price'] = event.price
+            self.add_trade_to_df(event)
         elif self.positions[pair]['status'] == HedgingStatus.OPENING_SHORT:
             self.positions[pair]['status'] = HedgingStatus.OPENED_SHORT
-            self.positions[pair]['entry_price'] = event.price
+            # self.positions[pair]['entry_price'] = event.price
+            self.add_trade_to_df(event)
         elif self.positions[pair]['status'] == HedgingStatus.CLOSING_LONG:
             self.positions[pair]['status'] = HedgingStatus.CLOSED_LONG
-            self.positions[pair]['entry_price'] = None
+            self.close_trade_in_df(event)
+            # self.positions[pair]['entry_price'] = None
         elif self.positions[pair]['status'] == HedgingStatus.CLOSING_SHORT:
             self.positions[pair]['status'] = HedgingStatus.CLOSED_SHORT
-            self.positions[pair]['entry_price'] = None
+            self.close_trade_in_df(event)
+            # self.positions[pair]['entry_price'] = None
 
         pair_data = self.get_pair_config(pair)
         if self.positions[pair]['status'] == HedgingStatus.CLOSED_LONG or self.positions[pair]['status'] == HedgingStatus.CLOSED_SHORT:
@@ -316,7 +331,14 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         if len(self.df) > 0:
             df_str = self.dataframe_to_formatted_string()
 
-        return f"{formatted_time}   {pair_1['pair']}: {price_pair_1}    {pair_2['pair']}: {price_pair_2}\n\n{df_str}"
+        pair1_pnl = self.positions['Pair-01']['total_pnl']
+        pair2_pnl = self.positions['Pair-02']['total_pnl']
+        pair1_status = self.positions['Pair-01']['status']
+        pair2_status = self.positions['Pair-02']['status']
+        pair_status = f"{pair_1['pair']} PnL: {pair1_pnl} {pair1_status.name}    {pair_2['pair']} PnL: {pair2_pnl}  {pair2_status.name}"
+        price_status = f"{pair_1['pair']}: {price_pair_1}    {pair_2['pair']}: {price_pair_2}"
+
+        return f"{formatted_time}   {price_status}\n\n{df_str}\n\n{pair_status}"
 
 
     def dataframe_to_formatted_string(self):
@@ -377,24 +399,51 @@ class GLKHedgeOptionsFile(StrategyV2Base):
 
         return '\n'.join(output_lines)
 
-    def add_trade_to_df(self, pair_config_str):
-        pair_config = self.get_pair_config(pair_config_str)
-        entry_price = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_config['pair'], PriceType.MidPrice)
+    def add_trade_to_df(self, event: OrderFilledEvent):
+        rev_pair = self.get_reverse_pair(event.trading_pair)
         current_time = datetime.now()
+        side = ""
+        if event.trade_type == TradeType.BUY:
+            side = "LONG"
+        elif event.trade_type == TradeType.SELL:
+            side = "SHORT"
 
         new_row = pd.DataFrame({
-            'Ticker': pair_config['pair'],
-            'Actual price': [entry_price],
-            'Entry price': [entry_price],
+            'Ticker': [event.trading_pair],
+            'Actual price': [None],
+            'Entry price': [event.price],
             'Exit price': [None],
             'Entry time': [current_time],
             'Exit time': [None],
-            'Side': ["LONG"],
+            'Side': [side],
             'PnL': [0.00],
             'PnL%': [0.00]
         })
         self.df = pd.concat([self.df, new_row], ignore_index=True)
-        self.positions[pair_config_str]['last_df_index'] = self.df.index[-1]
+        self.positions[rev_pair]['last_df_index'] = self.df.index[-1]
+        self.positions[rev_pair]['entry_price'] = event.price
+
+
+    def close_trade_in_df(self, event: OrderFilledEvent):
+        rev_pair = self.get_reverse_pair(event.trading_pair)
+        pair_config = self.get_pair_config(rev_pair)
+
+        index = self.positions[rev_pair]['last_df_index']
+
+        price_diff = event.price - self.df.loc[index, 'Entry price']
+        if event.trade_type == TradeType.BUY:
+            price_diff = -price_diff
+
+        pnl_pct = (price_diff / self.df.loc[index, 'Entry price']) * 100
+        pnl = price_diff * Decimal(pair_config['pair_config_buy']['order_amount'])
+
+        self.df.loc[index, 'PnL'] = pnl
+        self.df.loc[index, 'PnL%'] = pnl_pct
+        self.df.loc[index, 'Exit price'] = event.price
+        self.df.loc[index, 'Exit time%'] = datetime.now()
+
+        self.positions[rev_pair]['entry_price'] = None
+        self.positions[rev_pair]['last_df_index'] = None
 
 
 
@@ -403,15 +452,22 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         actual_price = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_config['pair'], PriceType.MidPrice)
 
         index = self.positions[pair_config_str]['last_df_index']
+        if index is None:
+            return
         row = self.df.loc[index]
 
         price_diff = actual_price - self.df.loc[index, 'Entry price']
+        if self.df.loc[index, 'Entry price'] == "SHORT":
+            price_diff = -price_diff
         pnl_pct = (price_diff / self.df.loc[index, 'Entry price']) * 100
         pnl = price_diff * Decimal(pair_config['pair_config_buy']['order_amount'])
 
         self.df.loc[index, 'Actual price'] = actual_price
         self.df.loc[index, 'PnL'] = pnl
         self.df.loc[index, 'PnL%'] = pnl_pct
+
+        total_pnl = self.df[self.df['Ticker'] == pair_config['pair']]['PnL'].sum()
+        self.positions[pair_config_str]['total_pnl'] = total_pnl
 
 
 
