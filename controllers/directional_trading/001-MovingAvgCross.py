@@ -95,7 +95,7 @@ class MovingAvgCrossController(DirectionalTradingControllerBase):
         #                               df[f"SMA_{self.config.slow_sma_length}"], above=False)
 
         df["signal"] = 0
-        df.loc[long_condition, "signal"] = 1
+        # df.loc[long_condition, "signal"] = 1
         df.loc[short_condition, "signal"] = -1
 
         # Update processed data
