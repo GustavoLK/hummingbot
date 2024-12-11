@@ -52,11 +52,13 @@ class GLKHedgeOptionsFile(StrategyV2Base):
     positions = {
         "Pair-01": {
             "entry_price": None,
-            "status": HedgingStatus.WAITING
+            "status": HedgingStatus.WAITING,
+            "last_df_index": None
         },
         "Pair-02": {
             "entry_price": None,
-            "status": HedgingStatus.WAITING
+            "status": HedgingStatus.WAITING,
+            "last_df_index": None
         }
     }
 
@@ -135,8 +137,13 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         self.process_pair('Pair-02')
 
         current_time = datetime.now()
-        if current_time.second % 10 == 0:
-            self.generate_random_trades()
+        if current_time.second % 10 == 0 and len(self.df) == 0:
+            # self.generate_random_trades()
+            self.add_trade_to_df('Pair-01')
+            self.add_trade_to_df('Pair-02')
+        elif len(self.df) == 2:
+            self.update_trade_in_df('Pair-01')
+            self.update_trade_in_df('Pair-02')
 
         if self.positions['Pair-01']['status'] == HedgingStatus.STOPPED and self.positions['Pair-02']['status'] == HedgingStatus.STOPPED:
             self.logger().info(f"Stopping application")
@@ -296,11 +303,11 @@ class GLKHedgeOptionsFile(StrategyV2Base):
 
 
     def format_status(self) -> str:
-        pair_data_btc = self.get_pair_config('Pair-01')
-        pair_data_eth = self.get_pair_config('Pair-02')
+        pair_1 = self.get_pair_config('Pair-01')
+        pair_2 = self.get_pair_config('Pair-02')
 
-        price_btc = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_data_btc['pair'], PriceType.MidPrice)
-        price_eth = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_data_eth['pair'], PriceType.MidPrice)
+        price_pair_1 = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_1['pair'], PriceType.MidPrice)
+        price_pair_2 = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_2['pair'], PriceType.MidPrice)
 
         current_time = datetime.now()
         formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -309,7 +316,7 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         if len(self.df) > 0:
             df_str = self.dataframe_to_formatted_string()
 
-        return f"{formatted_time}   {pair_data_btc['pair']}: {price_btc}    {pair_data_eth['pair']}: {price_eth}\n\n{df_str}"
+        return f"{formatted_time}   {pair_1['pair']}: {price_pair_1}    {pair_2['pair']}: {price_pair_2}\n\n{df_str}"
 
 
     def dataframe_to_formatted_string(self):
@@ -369,6 +376,43 @@ class GLKHedgeOptionsFile(StrategyV2Base):
             output_lines.append(format_str.format(*row.tolist()))
 
         return '\n'.join(output_lines)
+
+    def add_trade_to_df(self, pair_config_str):
+        pair_config = self.get_pair_config(pair_config_str)
+        entry_price = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_config['pair'], PriceType.MidPrice)
+        current_time = datetime.now()
+
+        new_row = pd.DataFrame({
+            'Ticker': pair_config['pair'],
+            'Actual price': [entry_price],
+            'Entry price': [entry_price],
+            'Exit price': [None],
+            'Entry time': [current_time],
+            'Exit time': [None],
+            'Side': ["LONG"],
+            'PnL': [0.00],
+            'PnL%': [0.00]
+        })
+        self.df = pd.concat([self.df, new_row], ignore_index=True)
+        self.positions[pair_config_str]['last_df_index'] = self.df.index[-1]
+
+
+
+    def update_trade_in_df(self, pair_config_str):
+        pair_config = self.get_pair_config(pair_config_str)
+        actual_price = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', pair_config['pair'], PriceType.MidPrice)
+
+        index = self.positions[pair_config_str]['last_df_index']
+        row = self.df.loc[index]
+
+        price_diff = actual_price - self.df.loc[index, 'Entry price']
+        pnl_pct = (price_diff / self.df.loc[index, 'Entry price']) * 100
+        pnl = price_diff * Decimal(pair_config['pair_config_buy']['order_amount'])
+
+        self.df.loc[index, 'Actual price'] = actual_price
+        self.df.loc[index, 'PnL'] = pnl
+        self.df.loc[index, 'PnL%'] = pnl_pct
+
 
 
 
