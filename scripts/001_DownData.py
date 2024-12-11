@@ -1,17 +1,16 @@
 import os
 from typing import Dict
 
-from hummingbot.connector.exchange.binance.binance_api_order_book_data_source import BinanceAPIOrderBookDataSource
+from sqlalchemy import create_engine
 
+import glk.quant.Data as glkdata
+from glk.db.ohlcv import OHLCV
 from hummingbot import data_path
 from hummingbot.client.hummingbot_application import HummingbotApplication
 from hummingbot.connector.connector_base import ConnectorBase
+from hummingbot.connector.exchange.binance.binance_api_order_book_data_source import BinanceAPIOrderBookDataSource
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesConfig, CandlesFactory
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
-
-from sqlalchemy import create_engine
-from glk.db.ohlcv import OHLCV
-import glk.quant.Data as glkdata
 
 
 class DownloadCandles(ScriptStrategyBase):

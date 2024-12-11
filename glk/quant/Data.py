@@ -1,6 +1,6 @@
+import numpy as np
 import pandas as pd
 import pytz
-import numpy as np
 
 
 class Data:

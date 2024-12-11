@@ -1,8 +1,7 @@
-from sqlalchemy import inspect, Column, Integer, Float, String, PrimaryKeyConstraint, Table
+from sqlalchemy import Column, Float, Integer, PrimaryKeyConstraint, String, Table, inspect
+from sqlalchemy.dialects.postgresql import TIMESTAMP, insert
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.dialects.postgresql import TIMESTAMP, insert
-
 
 
 class CustomBase:

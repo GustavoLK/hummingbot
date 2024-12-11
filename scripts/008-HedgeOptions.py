@@ -1,19 +1,15 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict
 from enum import Enum, auto
+from typing import Dict
 
-from hummingbot.strategy.strategy_v2_base import StrategyV2Base
-
+from glk.Notificator import Notificator
 from hummingbot.client.hummingbot_application import HummingbotApplication
 from hummingbot.connector.connector_base import ConnectorBase
-
+from hummingbot.core.data_type.common import OrderType, PositionMode, TradeType
 from hummingbot.core.event.events import BuyOrderCompletedEvent, OrderFilledEvent, SellOrderCompletedEvent
-
-from hummingbot.core.data_type.common import TradeType, OrderType, PositionMode
-
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
-from glk.Notificator import Notificator
+from hummingbot.strategy.strategy_v2_base import StrategyV2Base
 
 
 class HedgingStatus(Enum):

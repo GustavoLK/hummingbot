@@ -5,19 +5,18 @@ from typing import List
 
 import numpy as np
 import pandas_ta as ta  # noqa: F401
-from hummingbot.strategy_v2.models.executors import CloseType
 from pydantic import Field, validator
 
+from glk.Notificator import Notificator
 from hummingbot.client.config.config_data_types import ClientFieldData
-from hummingbot.core.data_type.common import OrderType, TradeType, PositionSide
+from hummingbot.core.data_type.common import OrderType, PositionSide, TradeType
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy_v2.controllers.directional_trading_controller_base import (
     DirectionalTradingControllerBase,
     DirectionalTradingControllerConfigBase,
 )
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TripleBarrierConfig
-from glk.Notificator import Notificator
-
+from hummingbot.strategy_v2.models.executors import CloseType
 
 # Esto funciona hasta ahi, no anda lo de setear el take profit de cada orden. Las ordenes dan error en  Hyperliquid
 
