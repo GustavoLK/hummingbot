@@ -1,18 +1,16 @@
 import os
-import random
-import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum, auto
 from typing import Dict, List, Optional
 
 import pandas as pd
 import yaml
+from hummingbot.connector.connector_base import ConnectorBase
 from pydantic import Field
 
 from glk.Notificator import Notificator
 from hummingbot.client.hummingbot_application import HummingbotApplication
-from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
@@ -52,17 +50,20 @@ class GLKHedgeOptionsFile(StrategyV2Base):
     positions = {
         "Pair-01": {
             "entry_price": None,
+            "sl_price": 0.0,
             "status": HedgingStatus.WAITING,
             "last_df_index": None,
             "total_pnl": 0.00
         },
         "Pair-02": {
             "entry_price": None,
+            "sl_price": 0.0,
             "status": HedgingStatus.WAITING,
             "last_df_index": None,
             "total_pnl": 0.00
         }
     }
+    df_file = None
 
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: Optional[GLKHedgeOptionsFileConfig] = None):
@@ -96,6 +97,8 @@ class GLKHedgeOptionsFile(StrategyV2Base):
             'PnL': 'float64',
             'PnL%': 'float64'
         })
+
+        self.df_file = "data/HedgeOptions-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".csv"
 
 
 
@@ -142,19 +145,10 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         self.process_pair('Pair-01')
         self.process_pair('Pair-02')
 
-        current_time = datetime.now()
-        # if current_time.second % 10 == 0 and len(self.df) == 0:
-        #     # self.generate_random_trades()
-        #     self.add_trade_to_df('Pair-01')
-        #     self.add_trade_to_df('Pair-02')
-        # elif len(self.df) == 2:
-        #     self.update_trade_in_df('Pair-01')
-        #     self.update_trade_in_df('Pair-02')
-
         self.update_trade_in_df('Pair-01')
         self.update_trade_in_df('Pair-02')
         if len(self.df) > 0:
-            self.df.to_csv("data/HedgeOptions.csv")
+            self.df.to_csv(self.df_file)
 
         if self.positions['Pair-01']['status'] == HedgingStatus.STOPPED and self.positions['Pair-02']['status'] == HedgingStatus.STOPPED:
             self.logger().info(f"Stopping application")
@@ -224,20 +218,20 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         # pero en test se setea a True para que la salida sea con ganancia de forma de no perder guita en cada prueba
         if not pair_data['pair_config']['reverse_exit']:
             if pair_data['pair_position']['status'] == HedgingStatus.OPENED_LONG:
-                if price < (pair_data['pair_position']['entry_price'] * Decimal(1 - pair_data['pair_config_buy']['stop_loss'])):
+                if price < self.positions[pair]['sl_price']:
                     self.operate_pair(pair, HedgingAction.CLOSE_LONG)
                     return
             if pair_data['pair_position']['status'] == HedgingStatus.OPENED_SHORT:
-                if price > (pair_data['pair_position']['entry_price'] * Decimal(1 + pair_data['pair_config_sell']['stop_loss'])):
+                if price > self.positions[pair]['sl_price']:
                     self.operate_pair(pair, HedgingAction.CLOSE_SHORT)
                     return
         else:
             if pair_data['pair_position']['status'] == HedgingStatus.OPENED_LONG:
-                if price > (pair_data['pair_position']['entry_price'] * Decimal(1 + pair_data['pair_config_buy']['stop_loss'])):
+                if price > self.positions[pair]['sl_price']:
                     self.operate_pair(pair, HedgingAction.CLOSE_LONG)
                     return
             if pair_data['pair_position']['status'] == HedgingStatus.OPENED_SHORT:
-                if price < (pair_data['pair_position']['entry_price'] * Decimal(1 - pair_data['pair_config_sell']['stop_loss'])):
+                if price < self.positions[pair]['sl_price']:
                     self.operate_pair(pair, HedgingAction.CLOSE_SHORT)
                     return
 
@@ -249,18 +243,24 @@ class GLKHedgeOptionsFile(StrategyV2Base):
                                                                     PriceType.MidPrice))
 
         if action == HedgingAction.OPEN_LONG or action == HedgingAction.CLOSE_SHORT:
+            amount = Decimal(pair_data['pair_config_buy']['order_amount'])
+            if action == HedgingAction.CLOSE_SHORT:
+                amount = Decimal(pair_data['pair_config_sell']['order_amount'])
             self.buy(
                 connector_name='hyperliquid_perpetual',
                 trading_pair=pair_data['pair'],
-                amount=Decimal(pair_data['pair_config_buy']['order_amount']),
+                amount=amount,
                 order_type=OrderType.MARKET,
                 price=price
             )
         elif action == HedgingAction.OPEN_SHORT or action == HedgingAction.CLOSE_LONG:
+            amount = Decimal(pair_data['pair_config_sell']['order_amount'])
+            if action == HedgingAction.CLOSE_LONG:
+                amount = Decimal(pair_data['pair_config_buy']['order_amount'])
             self.sell(
                 connector_name='hyperliquid_perpetual',
                 trading_pair=pair_data['pair'],
-                amount=Decimal(pair_data['pair_config_sell']['order_amount']),
+                amount=amount,
                 order_type=OrderType.MARKET,
                 price=price
             )
@@ -286,20 +286,16 @@ class GLKHedgeOptionsFile(StrategyV2Base):
 
         if self.positions[pair]['status'] == HedgingStatus.OPENING_LONG:
             self.positions[pair]['status'] = HedgingStatus.OPENED_LONG
-            # self.positions[pair]['entry_price'] = event.price
             self.add_trade_to_df(event)
         elif self.positions[pair]['status'] == HedgingStatus.OPENING_SHORT:
             self.positions[pair]['status'] = HedgingStatus.OPENED_SHORT
-            # self.positions[pair]['entry_price'] = event.price
             self.add_trade_to_df(event)
         elif self.positions[pair]['status'] == HedgingStatus.CLOSING_LONG:
             self.positions[pair]['status'] = HedgingStatus.CLOSED_LONG
             self.close_trade_in_df(event)
-            # self.positions[pair]['entry_price'] = None
         elif self.positions[pair]['status'] == HedgingStatus.CLOSING_SHORT:
             self.positions[pair]['status'] = HedgingStatus.CLOSED_SHORT
             self.close_trade_in_df(event)
-            # self.positions[pair]['entry_price'] = None
 
         pair_data = self.get_pair_config(pair)
         if self.positions[pair]['status'] == HedgingStatus.CLOSED_LONG or self.positions[pair]['status'] == HedgingStatus.CLOSED_SHORT:
@@ -331,14 +327,18 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         if len(self.df) > 0:
             df_str = self.dataframe_to_formatted_string()
 
-        pair1_pnl = self.positions['Pair-01']['total_pnl']
-        pair2_pnl = self.positions['Pair-02']['total_pnl']
+        pair1_pnl = round(self.positions['Pair-01']['total_pnl'],2)
+        pair2_pnl = round(self.positions['Pair-02']['total_pnl'],2)
         pair1_status = self.positions['Pair-01']['status']
         pair2_status = self.positions['Pair-02']['status']
-        pair_status = f"{pair_1['pair']} PnL: {pair1_pnl} {pair1_status.name}    {pair_2['pair']} PnL: {pair2_pnl}  {pair2_status.name}"
+        pair1_slp = round(self.positions['Pair-01']['sl_price'], 2)
+        pair2_slp = round(self.positions['Pair-02']['sl_price'], 2)
+
+        pair1_status_str = f"{pair_1['pair']} PnL: {pair1_pnl} - SL Price: {pair1_slp} - Reverse: {pair_1['pair_config']['reverse_exit']} - {pair1_status.name}"
+        pair2_status_str = f"{pair_2['pair']} PnL: {pair2_pnl} - SL Price: {pair2_slp} - Reverse: {pair_2['pair_config']['reverse_exit']} - {pair2_status.name}"
         price_status = f"{pair_1['pair']}: {price_pair_1}    {pair_2['pair']}: {price_pair_2}"
 
-        return f"{formatted_time}   {price_status}\n\n{df_str}\n\n{pair_status}"
+        return f"{formatted_time}   {price_status}\n\n{df_str}\n\n{pair1_status_str}\n{pair2_status_str}"
 
 
     def dataframe_to_formatted_string(self):
@@ -423,6 +423,18 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         self.positions[rev_pair]['last_df_index'] = self.df.index[-1]
         self.positions[rev_pair]['entry_price'] = event.price
 
+        pair_data = self.get_pair_config(rev_pair)
+        if not pair_data['pair_config']['reverse_exit']:
+            if side == "LONG":
+                self.positions[rev_pair]['sl_price'] = self.positions[rev_pair]['entry_price']  * Decimal(1 - pair_data['pair_config_buy']['stop_loss'])
+            elif side == "SHORT":
+                self.positions[rev_pair]['sl_price'] = self.positions[rev_pair]['entry_price']  * Decimal(1 + pair_data['pair_config_sell']['stop_loss'])
+        else:
+            if side == "LONG":
+                self.positions[rev_pair]['sl_price'] = self.positions[rev_pair]['entry_price']  * Decimal(1 + pair_data['pair_config_buy']['stop_loss'])
+            elif side == "SHORT":
+                self.positions[rev_pair]['sl_price'] = self.positions[rev_pair]['entry_price']  * Decimal(1 - pair_data['pair_config_sell']['stop_loss'])
+
 
     def close_trade_in_df(self, event: OrderFilledEvent):
         rev_pair = self.get_reverse_pair(event.trading_pair)
@@ -440,9 +452,10 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         self.df.loc[index, 'PnL'] = pnl
         self.df.loc[index, 'PnL%'] = pnl_pct
         self.df.loc[index, 'Exit price'] = event.price
-        self.df.loc[index, 'Exit time%'] = datetime.now()
+        self.df.loc[index, 'Exit time'] = datetime.now()
 
         self.positions[rev_pair]['entry_price'] = None
+        self.positions[rev_pair]['sl_price'] = 0.00
         self.positions[rev_pair]['last_df_index'] = None
 
 
@@ -457,7 +470,7 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         row = self.df.loc[index]
 
         price_diff = actual_price - self.df.loc[index, 'Entry price']
-        if self.df.loc[index, 'Entry price'] == "SHORT":
+        if self.df.loc[index, 'Side'] == "SHORT":
             price_diff = -price_diff
         pnl_pct = (price_diff / self.df.loc[index, 'Entry price']) * 100
         pnl = price_diff * Decimal(pair_config['pair_config_buy']['order_amount'])
@@ -469,96 +482,3 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         total_pnl = self.df[self.df['Ticker'] == pair_config['pair']]['PnL'].sum()
         self.positions[pair_config_str]['total_pnl'] = total_pnl
 
-
-
-
-    def generate_random_trades(self, num_trades=5):
-        """
-        Generate a DataFrame with random trading data.
-
-        Parameters:
-        -----------
-        num_trades : int, optional (default=5)
-            Number of random trades to generate
-
-        Returns:
-        --------
-        pandas.DataFrame
-            DataFrame filled with random trading data
-        """
-        # Prepare lists to store data
-        tickers = ['AVAX-USD', 'ETH-USD']
-        sides = ['LONG', 'SHORT']
-
-        # Initialize DataFrame columns
-        columns = [
-            'Ticker', 'Actual price', 'Entry price', 'Exit price',
-            'Entry time', 'Exit time', 'Side', 'PnL', 'PnL%'
-        ]
-
-        # Create an empty DataFrame with the right columns
-        df2 = pd.DataFrame(columns=columns)
-
-        for _ in range(num_trades):
-            # Randomly decide if the trade is closed or still open
-            is_closed = random.choice([True, False])
-
-            # Generate entry time
-            entry_time = datetime.now() - timedelta(days=random.randint(1, 30))
-
-            # Generate trade details
-            ticker = random.choice(tickers)
-            side = random.choice(sides)
-            entry_price = round(random.uniform(50, 500), 2)
-            actual_price = round(entry_price * random.uniform(0.9, 1.1), 2)
-
-            # Determine exit details
-            if is_closed:
-                exit_time = entry_time + timedelta(days=random.randint(1, 10))
-                exit_price = round(entry_price * random.uniform(0.8, 1.2), 2)
-
-                # Calculate PnL
-                if side == 'LONG':
-                    pnl = exit_price - entry_price
-                else:  # SHORT
-                    pnl = entry_price - exit_price
-
-                pnl_percentage = round((pnl / entry_price) * 100, 2)
-            else:
-                # If trade is not closed, leave exit details empty
-                exit_time = None
-                exit_price = None
-                pnl = None
-                pnl_percentage = None
-
-            # Create a new row in the DataFrame
-            new_row = pd.DataFrame({
-                'Ticker': [ticker],
-                'Actual price': [actual_price],
-                'Entry price': [entry_price],
-                'Exit price': [exit_price],
-                'Entry time': [entry_time],
-                'Exit time': [exit_time],
-                'Side': [side],
-                'PnL': [pnl],
-                'PnL%': [pnl_percentage]
-            })
-
-            # Concatenate the new row to the DataFrame
-            df2 = pd.concat([df2, new_row], ignore_index=True)
-
-        # Ensure correct data types
-        df2 = df2.astype({
-            'Ticker': 'object',
-            'Actual price': 'float64',
-            'Entry price': 'float64',
-            'Exit price': 'float64',
-            'Entry time': 'datetime64[ns]',
-            'Exit time': 'datetime64[ns]',
-            'Side': 'object',
-            'PnL': 'float64',
-            'PnL%': 'float64'
-        })
-
-        # self.df = pd.concat([self.df, df2], ignore_index=True)
-        self.df = df2
