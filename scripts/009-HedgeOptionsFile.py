@@ -6,11 +6,12 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import yaml
-from hummingbot.connector.connector_base import ConnectorBase
+from hummingbot.client.config.config_data_types import ClientFieldData
 from pydantic import Field
 
 from glk.Notificator import Notificator
 from hummingbot.client.hummingbot_application import HummingbotApplication
+from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
@@ -41,10 +42,15 @@ class HedgingAction(Enum):
 class GLKHedgeOptionsFileConfig(StrategyV2ConfigBase):
     script_file_name: str = Field(default_factory=lambda: os.path.basename(__file__))
     candles_config: List[CandlesConfig] = []
+    conf_script: str = Field(
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the script with the configuration: ",
+            prompt_on_new=True))
 
 
 class GLKHedgeOptionsFile(StrategyV2Base):
-    conf_file = "/etc/hummingbot/OptionsHedge.yml"
+    # conf_file = "/etc/hummingbot/OptionsHedge.yml"
+    conf_file = None
     config_readed = None
     last_conf_timestamp = None
     positions = {
@@ -73,6 +79,7 @@ class GLKHedgeOptionsFile(StrategyV2Base):
         # self.conf_file = f"conf/scripts/{hb_app.strategy_file_name}"
 
         self.config = config
+        self.conf_file = f"conf/scripts/{config.conf_script}"
         self.df = pd.DataFrame(columns=[
             'Ticker',
             'Actual price',
@@ -103,7 +110,6 @@ class GLKHedgeOptionsFile(StrategyV2Base):
 
 
     def read_file(self):
-
         if not os.path.exists(self.conf_file):
             return False
 

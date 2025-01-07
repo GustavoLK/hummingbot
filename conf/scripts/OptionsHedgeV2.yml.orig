@@ -1,0 +1,17 @@
+dry_run: true
+leverage: 50
+status: WAITING
+BUY:
+    not_after: 2025-01-07 05:00:00
+    order_amount: 0.50
+    entry_orig: 3740
+    sl_pct: 0.01
+    ts_activation: 0.0015
+    ts: 0.0007
+SELL:
+    not_after: 2025-01-08 05:00:00
+    order_amount: 0.1
+    entry_orig: 3350
+    sl_pct: 0.01
+    ts_activation: 0.0015
+    ts: 0.0007

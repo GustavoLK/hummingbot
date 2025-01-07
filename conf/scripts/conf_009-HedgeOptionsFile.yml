@@ -6,3 +6,4 @@ candles_config: []
 controllers_config: []
 config_update_interval: 60
 script_file_name: 009-HedgeOptionsFile.py
+conf_script: OptionsHedge.yml
