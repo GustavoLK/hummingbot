@@ -6,15 +6,15 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import yaml
-from hummingbot.connector.connector_base import ConnectorBase
-from hummingbot.strategy.strategy_py_base import BuyOrderCompletedEvent, SellOrderCompletedEvent
 from pydantic import Field
 
 from glk.Notificator import Notificator
 from hummingbot.client.config.config_data_types import ClientFieldData
+from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
 from hummingbot.core.event.events import OrderFilledEvent
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
+from hummingbot.strategy.strategy_py_base import BuyOrderCompletedEvent, SellOrderCompletedEvent
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction
 
@@ -122,6 +122,8 @@ class GLKHedgeOptions(StrategyV2Base):
                 self.config_readed['status'] = HedgingStatus[self.config_readed['status']]
                 self.logger().info(f"Configuration file (re)readed")
                 self.last_conf_timestamp = datetime.now().timestamp()
+
+
                 if "entry" not in self.config_readed['BUY']:
                     self.config_readed['BUY']['entry'] = self.config_readed['BUY']['entry_orig']
                 if "entry" not in self.config_readed['SELL']:
@@ -238,13 +240,14 @@ class GLKHedgeOptions(StrategyV2Base):
         # self.reverse_exit es usado con fines de testing. En produccion reverse_exit es False y la salida es por stop loss
         # pero en test se setea a True para que la salida sea con ganancia de forma de no perder guita en cada prueba
 
+            self.adjust_entry(price)
         if self.config_readed['status'] == HedgingStatus.OPENED_LONG:
             if price < self.config_readed['BUY']['sl']:
                 self.operate_pair(HedgingAction.CLOSE_LONG)
                 return
             else:
                 self.adjust_prices(price)
-        if self.config_readed['status'] == HedgingStatus.OPENED_SHORT:
+        elif self.config_readed['status'] == HedgingStatus.OPENED_SHORT:
             if price > self.config_readed['SELL']['sl']:
                 self.operate_pair(HedgingAction.CLOSE_SHORT)
                 return
@@ -267,7 +270,7 @@ class GLKHedgeOptions(StrategyV2Base):
                     entry_orig = self.config_readed['BUY']['entry']
                     sl_orig = self.config_readed['BUY']['sl']
                     self.config_readed['BUY']['sl'] = round(price * (1 - Decimal(self.config_readed['BUY']['ts'])), 2)
-                    self.config_readed['BUY']['entry'] = self.config_readed['BUY']['sl'] + 5  # TODO ajustar esto hardcoded
+                    self.config_readed['BUY']['entry'] = self.config_readed['BUY']['sl'] * (1 + ts_activation_pct)
                     self.logger().info(f"LONG Adjusting. Price {price} SL {sl_orig} -> {self.config_readed['BUY']['sl']}  Entry {entry_orig} -> {self.config_readed['BUY']['entry']}")
                     self.write_file(True)
             elif self.config_readed['status'] == HedgingStatus.OPENED_SHORT:
@@ -276,8 +279,36 @@ class GLKHedgeOptions(StrategyV2Base):
                     entry_orig = self.config_readed['SELL']['entry']
                     sl_orig = self.config_readed['SELL']['sl']
                     self.config_readed['SELL']['sl'] = round(price * (1 + Decimal(self.config_readed['SELL']['ts'])), 2)
-                    self.config_readed['SELL']['entry'] = self.config_readed['SELL']['sl'] - 5  # TODO ajustar esto hardcoded
+                    self.config_readed['SELL']['entry'] = self.config_readed['SELL']['sl'] * (1 - ts_activation_pct)
                     self.logger().info(f"SHORT Adjusting. Price {price} SL {sl_orig} -> {self.config_readed['SELL']['sl']}  Entry {entry_orig} -> {self.config_readed['SELL']['entry']}")
+                    self.write_file(True)
+
+    def adjust_entry(self, price):
+        if self.config_readed['status'] != HedgingStatus.WAITING:
+            return
+        if len(self.df) == 0:
+            return
+
+        last_trade = self.df.iloc[-1]
+        if last_trade['Side'] == "LONG":
+            ts_activation_price = last_trade['Exit price'] * (1 - Decimal(self.config_readed['BUY']['ts_activation']))
+            # self.logger().info(f"ADJUST ENTRY LONG: {self.config_readed['BUY']['entry_orig']} < {self.config_readed['BUY']['entry']} < {ts_activation_price} ?")
+
+            if self.config_readed['BUY']['entry'] > self.config_readed['BUY']['entry_orig'] and self.config_readed['BUY']['entry_orig'] < ts_activation_price:
+                ts_price = price * (1 + Decimal(self.config_readed['BUY']['ts']))
+                if ts_price < self.config_readed['BUY']['entry']:
+                    self.logger().info(f"WAITING Adjusting LONG. Price {price} Entry: {self.config_readed['BUY']['entry']} -> {ts_price}")
+                    self.config_readed['BUY']['entry'] = ts_price
+                    self.write_file(True)
+        elif last_trade['Side'] == "SHORT":
+            ts_activation_price = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
+            # self.logger().info(f"ADJUST ENTRY SHORT: {self.config_readed['SELL']['entry_orig']} > {self.config_readed['SELL']['entry']} > {ts_activation_price} ?")
+
+            if self.config_readed['SELL']['entry'] < self.config_readed['SELL']['entry_orig'] and self.config_readed['SELL']['entry_orig'] > ts_activation_price:
+                ts_price = price * (1 - Decimal(self.config_readed['SELL']['ts']))
+                if ts_price > self.config_readed['SELL']['entry']:
+                    self.logger().info(f"WAITING Adjusting SHORT. Price {price} Entry: {self.config_readed['SELL']['entry']} -> {ts_price}")
+                    self.config_readed['SELL']['entry'] = ts_price
                     self.write_file(True)
 
 
@@ -359,11 +390,27 @@ class GLKHedgeOptions(StrategyV2Base):
         elif self.config_readed['status'] == HedgingStatus.CLOSING_LONG:
             self.config_readed['status'] = HedgingStatus.CLOSED_LONG
             self._close_trade_in_df(price)
-            self.config_readed['BUY']['sl'] = self.config_readed['BUY']['entry'] * (1 - self.config_readed['BUY']['sl_pct'])
+            last_trade = self.df.iloc[-1]
+            self.config_readed['BUY']['entry'] = last_trade['Exit price'] * (1 + Decimal(self.config_readed['BUY']['ts_activation']))
+            self.config_readed['BUY']['sl'] = last_trade['Exit price']
+
+            trailing_entry_activation = last_trade['Exit price'] * (1 - Decimal(self.config_readed['BUY']['ts_activation']))
+            if trailing_entry_activation > self.config_readed['BUY']['entry_orig']:
+                self.logger().info(f"LONG TRAILING ENTRY ACTIVATION {trailing_entry_activation} > {self.config_readed['BUY']['entry_orig']}")
+
+            # self.config_readed['BUY']['sl'] = Decimal(self.config_readed['BUY']['entry']) * (1 - Decimal(self.config_readed['BUY']['sl_pct']))
         elif self.config_readed['status'] == HedgingStatus.CLOSING_SHORT:
             self.config_readed['status'] = HedgingStatus.CLOSED_SHORT
             self._close_trade_in_df(price)
-            self.config_readed['SELL']['sl'] = self.config_readed['SELL']['entry'] * (1 + self.config_readed['SELL']['sl_pct'])
+            last_trade = self.df.iloc[-1]
+            self.config_readed['SELL']['entry'] = last_trade['Exit price'] * (1 - Decimal(self.config_readed['SELL']['ts_activation']))
+            self.config_readed['SELL']['sl'] = last_trade['Exit price']
+
+            trailing_entry_activation = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
+            if trailing_entry_activation < self.config_readed['SELL']['entry_orig']:
+                self.logger().info(f"SHORT TRAILING ENTRY ACTIVATION {trailing_entry_activation} < {self.config_readed['SELL']['entry_orig']}")
+
+            # self.config_readed['SELL']['sl'] = Decimal(self.config_readed['SELL']['entry']) * (1 + Decimal(self.config_readed['SELL']['sl_pct']))
 
         current_time = datetime.now()
 
@@ -387,7 +434,7 @@ class GLKHedgeOptions(StrategyV2Base):
 
 
     def format_status(self) -> str:
-        price_pair = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', self.pair, PriceType.MidPrice)
+        price_pair = round(self.market_data_provider.get_price_by_type('hyperliquid_perpetual', self.pair, PriceType.MidPrice), 2)
 
         current_time = datetime.now()
         formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
