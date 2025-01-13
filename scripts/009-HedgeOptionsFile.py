@@ -6,10 +6,10 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import yaml
-from hummingbot.client.config.config_data_types import ClientFieldData
 from pydantic import Field
 
 from glk.Notificator import Notificator
+from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.client.hummingbot_application import HummingbotApplication
 from hummingbot.connector.connector_base import ConnectorBase
 from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType

@@ -240,15 +240,17 @@ class GLKHedgeOptions(StrategyV2Base):
         # self.reverse_exit es usado con fines de testing. En produccion reverse_exit es False y la salida es por stop loss
         # pero en test se setea a True para que la salida sea con ganancia de forma de no perder guita en cada prueba
 
-            self.adjust_entry(price)
+        self.adjust_entry(price)
         if self.config_readed['status'] == HedgingStatus.OPENED_LONG:
             if price < self.config_readed['BUY']['sl']:
+                self.logger().info(f"LONG STOP LOSS {price} < {self.config_readed['BUY']['sl']}")
                 self.operate_pair(HedgingAction.CLOSE_LONG)
                 return
             else:
                 self.adjust_prices(price)
         elif self.config_readed['status'] == HedgingStatus.OPENED_SHORT:
             if price > self.config_readed['SELL']['sl']:
+                self.logger().info(f"SHORT STOP LOSS {price} > {self.config_readed['SELL']['sl']}")
                 self.operate_pair(HedgingAction.CLOSE_SHORT)
                 return
             else:
@@ -396,7 +398,7 @@ class GLKHedgeOptions(StrategyV2Base):
 
             trailing_entry_activation = last_trade['Exit price'] * (1 - Decimal(self.config_readed['BUY']['ts_activation']))
             if trailing_entry_activation > self.config_readed['BUY']['entry_orig']:
-                self.logger().info(f"LONG TRAILING ENTRY ACTIVATION {trailing_entry_activation} > {self.config_readed['BUY']['entry_orig']}")
+                self.logger().info(f"LONG TRAILING ENTRY ACTIVATION Price: {price} - {trailing_entry_activation} > {self.config_readed['BUY']['entry_orig']}")
 
             # self.config_readed['BUY']['sl'] = Decimal(self.config_readed['BUY']['entry']) * (1 - Decimal(self.config_readed['BUY']['sl_pct']))
         elif self.config_readed['status'] == HedgingStatus.CLOSING_SHORT:
@@ -408,7 +410,7 @@ class GLKHedgeOptions(StrategyV2Base):
 
             trailing_entry_activation = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
             if trailing_entry_activation < self.config_readed['SELL']['entry_orig']:
-                self.logger().info(f"SHORT TRAILING ENTRY ACTIVATION {trailing_entry_activation} < {self.config_readed['SELL']['entry_orig']}")
+                self.logger().info(f"SHORT TRAILING ENTRY ACTIVATION Price: {price} - {trailing_entry_activation} < {self.config_readed['SELL']['entry_orig']}")
 
             # self.config_readed['SELL']['sl'] = Decimal(self.config_readed['SELL']['entry']) * (1 + Decimal(self.config_readed['SELL']['sl_pct']))
 
