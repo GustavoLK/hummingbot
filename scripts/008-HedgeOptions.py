@@ -98,7 +98,7 @@ class GLKHedgeOptions(StrategyV2Base):
             'PnL%': 'float64'
         })
 
-        self.df_file = "data/HedgeOptionsV2-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".csv"
+        self.df_file = f"data/HedgeOptionsV2-{self.pair}-" + datetime.now().strftime("%Y%m%d-%H%M%S") + ".csv"
 
 
 
@@ -299,8 +299,10 @@ class GLKHedgeOptions(StrategyV2Base):
             if self.config_readed['BUY']['entry'] > self.config_readed['BUY']['entry_orig'] and self.config_readed['BUY']['entry_orig'] < ts_activation_price:
                 ts_price = price * (1 + Decimal(self.config_readed['BUY']['ts']))
                 if ts_price < self.config_readed['BUY']['entry']:
-                    self.logger().info(f"WAITING Adjusting LONG. Price {price} Entry: {self.config_readed['BUY']['entry']} -> {ts_price}")
+                    sl_orig = self.config_readed['BUY']['sl']
+                    self.logger().info(f"WAITING Adjusting LONG. Price {price} Entry: {self.config_readed['BUY']['entry']} -> {ts_price}  SL: {sl_orig} -> {self.config_readed['BUY']['sl']}")
                     self.config_readed['BUY']['entry'] = ts_price
+                    self.config_readed['BUY']['sl'] = round(self.config_readed['BUY']['entry'] * (1 - Decimal(self.config_readed['BUY']['sl_pct'])), 2)
                     self.write_file(True)
         elif last_trade['Side'] == "SHORT":
             ts_activation_price = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
@@ -309,8 +311,11 @@ class GLKHedgeOptions(StrategyV2Base):
             if self.config_readed['SELL']['entry'] < self.config_readed['SELL']['entry_orig'] and self.config_readed['SELL']['entry_orig'] > ts_activation_price:
                 ts_price = price * (1 - Decimal(self.config_readed['SELL']['ts']))
                 if ts_price > self.config_readed['SELL']['entry']:
-                    self.logger().info(f"WAITING Adjusting SHORT. Price {price} Entry: {self.config_readed['SELL']['entry']} -> {ts_price}")
+                    sl_orig = self.config_readed['SELL']['sl']
+                    self.logger().info(f"WAITING Adjusting SHORT. Price {price} Entry: {self.config_readed['SELL']['entry']} -> {ts_price}  SL: {sl_orig} -> {self.config_readed['SELL']['sl']}")
                     self.config_readed['SELL']['entry'] = ts_price
+                    self.config_readed['SELL']['sl'] = round(self.config_readed['SELL']['entry'] * (1 + Decimal(self.config_readed['SELL']['sl_pct'])), 2)
+
                     self.write_file(True)
 
 
@@ -394,7 +399,9 @@ class GLKHedgeOptions(StrategyV2Base):
             self._close_trade_in_df(price)
             last_trade = self.df.iloc[-1]
             self.config_readed['BUY']['entry'] = last_trade['Exit price'] * (1 + Decimal(self.config_readed['BUY']['ts_activation']))
-            self.config_readed['BUY']['sl'] = last_trade['Exit price']
+            # Viejo metodo documentado en Inkscape
+            # self.config_readed['BUY']['sl'] = last_trade['Exit price']
+            self.config_readed['BUY']['sl'] = round(self.config_readed['BUY']['entry'] * (1 - Decimal(self.config_readed['BUY']['sl_pct'])), 2)
 
             trailing_entry_activation = last_trade['Exit price'] * (1 - Decimal(self.config_readed['BUY']['ts_activation']))
             if trailing_entry_activation > self.config_readed['BUY']['entry_orig']:
@@ -406,7 +413,9 @@ class GLKHedgeOptions(StrategyV2Base):
             self._close_trade_in_df(price)
             last_trade = self.df.iloc[-1]
             self.config_readed['SELL']['entry'] = last_trade['Exit price'] * (1 - Decimal(self.config_readed['SELL']['ts_activation']))
-            self.config_readed['SELL']['sl'] = last_trade['Exit price']
+            # Viejo metodo documentado en Inkscape
+            # self.config_readed['SELL']['sl'] = last_trade['Exit price']
+            self.config_readed['SELL']['sl'] = round(self.config_readed['SELL']['entry'] * (1 + Decimal(self.config_readed['SELL']['sl_pct'])), 2)
 
             trailing_entry_activation = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
             if trailing_entry_activation < self.config_readed['SELL']['entry_orig']:
@@ -424,6 +433,7 @@ class GLKHedgeOptions(StrategyV2Base):
             del self.config_readed['entry_price']
             del self.config_readed['amount']
             del self.config_readed['entry_time']
+            self.max_price = Decimal(0.00)
             if current_time > self.config_readed['BUY']['not_after'] and current_time > self.config_readed['SELL']['not_after']:
                 self.config_readed['status'] = HedgingStatus.STOPPED
             else:
