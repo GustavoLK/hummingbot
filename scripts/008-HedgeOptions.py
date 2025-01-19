@@ -58,6 +58,7 @@ class GLKHedgeOptions(StrategyV2Base):
     df_file = None
     max_price = Decimal(0.00)
     min_price = Decimal(1_000_000)
+    taker_fee = Decimal(0.000336)  # HARDCODED. Taker commision on Hyperliquid
 
 
     def __init__(self, connectors: Dict[str, ConnectorBase], config: Optional[GLKHedgeOptionsConfig] = None):
@@ -80,6 +81,7 @@ class GLKHedgeOptions(StrategyV2Base):
             'Entry time',
             'Exit time',
             'Side',
+            'Fees',
             'PnL',
             'PnL%'
         ])
@@ -94,6 +96,7 @@ class GLKHedgeOptions(StrategyV2Base):
             'Entry time': 'datetime64[ns]',
             'Exit time': 'datetime64[ns]',
             'Side': 'object',
+            'Fees': 'float64',
             'PnL': 'float64',
             'PnL%': 'float64'
         })
@@ -129,6 +132,7 @@ class GLKHedgeOptions(StrategyV2Base):
                 if "entry" not in self.config_readed['SELL']:
                     self.config_readed['SELL']['entry'] = self.config_readed['SELL']['entry_orig']
 
+                # If SL is not set in price then is calculated based in percentaje
                 if "sl" not in self.config_readed['BUY']:
                     self.config_readed['BUY']['sl'] = self.config_readed['BUY']['entry'] * (1 - self.config_readed['BUY']['sl_pct'])
                 if "sl" not in self.config_readed['SELL']:
@@ -138,7 +142,7 @@ class GLKHedgeOptions(StrategyV2Base):
                     action = "BUY"
                     if self.config_readed['status'] == HedgingStatus.OPENED_SHORT:
                         action = "SELL"
-                    self._add_trade_to_df(action, self.config_readed['amount'], self.pair, self.config_readed['entry_price'])
+                    self._add_trade_to_df(action, Decimal(self.config_readed['amount']), self.pair, Decimal(self.config_readed['entry_price']))
 
                 # Si actualizo el archivo de configuracion reseteo los status
                 # self.positions['Pair-01']['status'] = HedgingStatus.WAITING
@@ -284,6 +288,35 @@ class GLKHedgeOptions(StrategyV2Base):
                     self.config_readed['SELL']['entry'] = self.config_readed['SELL']['sl'] * (1 - ts_activation_pct)
                     self.logger().info(f"SHORT Adjusting. Price {price} SL {sl_orig} -> {self.config_readed['SELL']['sl']}  Entry {entry_orig} -> {self.config_readed['SELL']['entry']}")
                     self.write_file(True)
+        else:
+            long_pnl = float(self.df[(self.df['Ticker'] == self.pair) & (self.df['Side'] == 'LONG') & (self.df['Exit price'].notna())]['PnL'].sum())
+            short_pnl = float(self.df[(self.df['Ticker'] == self.pair) & (self.df['Side'] == 'SHORT') & (self.df['Exit price'].notna())]['PnL'].sum())
+            if self.config_readed['status'] == HedgingStatus.OPENED_LONG and long_pnl > 0:
+                sl_orig = round(self.config_readed['BUY']['sl'], 2)
+                new_sl = sl_orig
+                # calculo un SL a un 30% de las ganacias acumuladas LONG - procentaje es HARDCODED
+                small_sl = self.config_readed['entry_price'] - (long_pnl * (1 - 0.3) / self.config_readed['BUY']['order_amount'])
+                # El SL es el original partiendo del precio de entrada pero si estoy en zona de tradeo ( por arriba de la entrada )
+                # y ya tengo ganancias entonces uso el SL antes calculado ( me dara un perdidad pero conservare parte de las ganacias )
+                if price > self.config_readed['BUY']['entry_orig']:
+                    new_sl = round(small_sl, 2)
+                if abs(new_sl - sl_orig) > 0.0001:
+                    self.logger().info(f"LONG Adjusting SMALL STOP LOSS. Price {price} SL {sl_orig} -> {new_sl}")
+                    self.config_readed['BUY']['sl'] = new_sl
+                    self.write_file(True)
+            elif self.config_readed['status'] == HedgingStatus.OPENED_SHORT and short_pnl > 0:
+                sl_orig = round(self.config_readed['SELL']['sl'], 2)
+                new_sl = sl_orig
+                # calculo un SL a un 30% de las ganacias acumuladas SHORT - procentaje es HARDCODED
+                small_sl = self.config_readed['entry_price'] + (short_pnl * (1 - 0.3) / self.config_readed['SELL']['order_amount'])
+                # El SL es el original partiendo del precio de entrada pero si estoy en zona de tradeo ( por arriba de la entrada )
+                # y ya tengo ganancias entonces uso el SL antes calculado ( me dara un perdidad pero conservare parte de las ganacias )
+                if price < self.config_readed['SELL']['entry_orig']:
+                    new_sl = round(small_sl, 2)
+                if abs(new_sl - sl_orig) > 0.0001:
+                    self.logger().info(f"SHORT Adjusting SMALL STOP LOSS. Price {price} SL {sl_orig} -> {new_sl}")
+                    self.config_readed['SELL']['sl'] = new_sl
+                    self.write_file(True)
 
     def adjust_entry(self, price):
         if self.config_readed['status'] != HedgingStatus.WAITING:
@@ -300,19 +333,17 @@ class GLKHedgeOptions(StrategyV2Base):
                 ts_price = price * (1 + Decimal(self.config_readed['BUY']['ts']))
                 if ts_price < self.config_readed['BUY']['entry']:
                     sl_orig = self.config_readed['BUY']['sl']
-                    self.logger().info(f"WAITING Adjusting LONG. Price {price} Entry: {self.config_readed['BUY']['entry']} -> {ts_price}  SL: {sl_orig} -> {self.config_readed['BUY']['sl']}")
+                    self.logger().info(f"WAITING Adjusting LONG ENTRY. Price {price} Entry: {self.config_readed['BUY']['entry']} -> {ts_price}  SL: {sl_orig} -> {self.config_readed['BUY']['sl']}")
                     self.config_readed['BUY']['entry'] = ts_price
                     self.config_readed['BUY']['sl'] = round(self.config_readed['BUY']['entry'] * (1 - Decimal(self.config_readed['BUY']['sl_pct'])), 2)
                     self.write_file(True)
         elif last_trade['Side'] == "SHORT":
             ts_activation_price = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
-            # self.logger().info(f"ADJUST ENTRY SHORT: {self.config_readed['SELL']['entry_orig']} > {self.config_readed['SELL']['entry']} > {ts_activation_price} ?")
-
             if self.config_readed['SELL']['entry'] < self.config_readed['SELL']['entry_orig'] and self.config_readed['SELL']['entry_orig'] > ts_activation_price:
                 ts_price = price * (1 - Decimal(self.config_readed['SELL']['ts']))
                 if ts_price > self.config_readed['SELL']['entry']:
                     sl_orig = self.config_readed['SELL']['sl']
-                    self.logger().info(f"WAITING Adjusting SHORT. Price {price} Entry: {self.config_readed['SELL']['entry']} -> {ts_price}  SL: {sl_orig} -> {self.config_readed['SELL']['sl']}")
+                    self.logger().info(f"WAITING Adjusting SHORT ENTRY. Price {price} Entry: {self.config_readed['SELL']['entry']} -> {ts_price}  SL: {sl_orig} -> {self.config_readed['SELL']['sl']}")
                     self.config_readed['SELL']['entry'] = ts_price
                     self.config_readed['SELL']['sl'] = round(self.config_readed['SELL']['entry'] * (1 + Decimal(self.config_readed['SELL']['sl_pct'])), 2)
 
@@ -401,13 +432,12 @@ class GLKHedgeOptions(StrategyV2Base):
             self.config_readed['BUY']['entry'] = last_trade['Exit price'] * (1 + Decimal(self.config_readed['BUY']['ts_activation']))
             # Viejo metodo documentado en Inkscape
             # self.config_readed['BUY']['sl'] = last_trade['Exit price']
-            self.config_readed['BUY']['sl'] = round(self.config_readed['BUY']['entry'] * (1 - Decimal(self.config_readed['BUY']['sl_pct'])), 2)
+            # Nuevo. Comento lo siguiente. No toco el SL
+            # self.config_readed['BUY']['sl'] = round(self.config_readed['BUY']['entry'] * (1 - Decimal(self.config_readed['BUY']['sl_pct'])), 2)
 
             trailing_entry_activation = last_trade['Exit price'] * (1 - Decimal(self.config_readed['BUY']['ts_activation']))
             if trailing_entry_activation > self.config_readed['BUY']['entry_orig']:
                 self.logger().info(f"LONG TRAILING ENTRY ACTIVATION Price: {price} - {trailing_entry_activation} > {self.config_readed['BUY']['entry_orig']}")
-
-            # self.config_readed['BUY']['sl'] = Decimal(self.config_readed['BUY']['entry']) * (1 - Decimal(self.config_readed['BUY']['sl_pct']))
         elif self.config_readed['status'] == HedgingStatus.CLOSING_SHORT:
             self.config_readed['status'] = HedgingStatus.CLOSED_SHORT
             self._close_trade_in_df(price)
@@ -415,13 +445,12 @@ class GLKHedgeOptions(StrategyV2Base):
             self.config_readed['SELL']['entry'] = last_trade['Exit price'] * (1 - Decimal(self.config_readed['SELL']['ts_activation']))
             # Viejo metodo documentado en Inkscape
             # self.config_readed['SELL']['sl'] = last_trade['Exit price']
-            self.config_readed['SELL']['sl'] = round(self.config_readed['SELL']['entry'] * (1 + Decimal(self.config_readed['SELL']['sl_pct'])), 2)
+            # Nuevo. Comento lo siguiente. No toco el SL
+            # self.config_readed['SELL']['sl'] = round(self.config_readed['SELL']['entry'] * (1 + Decimal(self.config_readed['SELL']['sl_pct'])), 2)
 
             trailing_entry_activation = last_trade['Exit price'] * (1 + Decimal(self.config_readed['SELL']['ts_activation']))
             if trailing_entry_activation < self.config_readed['SELL']['entry_orig']:
                 self.logger().info(f"SHORT TRAILING ENTRY ACTIVATION Price: {price} - {trailing_entry_activation} < {self.config_readed['SELL']['entry_orig']}")
-
-            # self.config_readed['SELL']['sl'] = Decimal(self.config_readed['SELL']['entry']) * (1 + Decimal(self.config_readed['SELL']['sl_pct']))
 
         current_time = datetime.now()
 
@@ -485,7 +514,10 @@ class GLKHedgeOptions(StrategyV2Base):
         for time_col in ['Entry time', 'Exit time']:
             df_copy[time_col] = pd.to_datetime(df_copy[time_col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
-        # Format PnL columns to 2 decimal places
+        # Format  columns to 2 decimal places
+        df_copy['Entry price'] = df_copy['Entry price'].apply(lambda x: f'{x:.2f}' if pd.notnull(x) else '')
+        df_copy['Exit price'] = df_copy['Exit price'].apply(lambda x: f'{x:.2f}' if pd.notnull(x) else '')
+        df_copy['Fees'] = df_copy['Fees'].apply(lambda x: f'{x:.2f}' if pd.notnull(x) else '')
         df_copy['PnL'] = df_copy['PnL'].apply(lambda x: f'{x:.2f}' if pd.notnull(x) else '')
         df_copy['PnL%'] = df_copy['PnL%'].apply(lambda x: f'{x:.2f}' if pd.notnull(x) else '')
 
@@ -531,10 +563,12 @@ class GLKHedgeOptions(StrategyV2Base):
         # Sometimes amount received is wrong. I use values from config file instead
         if trade_type == "BUY" or trade_type == TradeType.BUY:
             side = "LONG"
-            amount = self.config_readed['BUY']['order_amount']
+            amount = Decimal(self.config_readed['BUY']['order_amount'])
         elif trade_type == "SELL" or trade_type == TradeType.SELL:
             side = "SHORT"
-            amount = self.config_readed['SELL']['order_amount']
+            amount = Decimal(self.config_readed['SELL']['order_amount'])
+
+        fees = round(price * amount * self.taker_fee, 2)
 
         new_row = pd.DataFrame({
             'Ticker': [trading_pair],
@@ -545,6 +579,7 @@ class GLKHedgeOptions(StrategyV2Base):
             'Entry time': [current_time],
             'Exit time': [None],
             'Side': [side],
+            'Fees': [fees],
             'PnL': [0.00],
             'PnL%': [0.00]
         })
@@ -556,21 +591,24 @@ class GLKHedgeOptions(StrategyV2Base):
     def _close_trade_in_df(self, price):
         index = self.last_df_index
 
-        price_diff = price - Decimal(self.df.loc[index, 'Entry price'])
-        # amount = Decimal(self.config_readed['BUY']['order_amount'])
         amount = Decimal(self.df.loc[index, 'Amount'])
+        fees = Decimal(self.df.loc[index, 'Fees']) + round(price * amount * Decimal(self.taker_fee), 2)
+        price_diff = price - Decimal(self.df.loc[index, 'Entry price'])
         if self.df.loc[index, 'Side'] == "SHORT":
             price_diff = -price_diff
             # amount = Decimal(self.config_readed['SELL']['order_amount'])
 
-
+        # NOTE that pnl_pct shows the % variation of price, not real profit/loss
         pnl_pct = (price_diff / Decimal(self.df.loc[index, 'Entry price'])) * 100
-        pnl = price_diff * amount
+        pnl = price_diff * amount - fees
 
+        self.df.loc[index, 'Fees'] = fees
         self.df.loc[index, 'PnL'] = pnl
         self.df.loc[index, 'PnL%'] = pnl_pct
         self.df.loc[index, 'Exit price'] = price
         self.df.loc[index, 'Exit time'] = datetime.now()
+
+        self.total_pnl = self.df[self.df['Ticker'] == self.pair]['PnL'].sum()
 
         self.last_df_index = None
 
@@ -587,11 +625,13 @@ class GLKHedgeOptions(StrategyV2Base):
         amount = Decimal(self.df.loc[index, 'Amount'])
         if self.df.loc[index, 'Side'] == "SHORT":
             price_diff = -price_diff
+
+        pnl = (price_diff * amount) - Decimal(self.df.loc[index, 'Fees'])
         pnl_pct = (price_diff / Decimal(self.df.loc[index, 'Entry price'])) * 100
-        pnl = price_diff * amount
 
         self.df.loc[index, 'Actual price'] = actual_price
         self.df.loc[index, 'PnL'] = pnl
+        # NOTE that pnl_pct shows the % variation of price, not real profit/loss
         self.df.loc[index, 'PnL%'] = pnl_pct
 
         self.total_pnl = self.df[self.df['Ticker'] == self.pair]['PnL'].sum()
