@@ -23,9 +23,9 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
-     inkscape:zoom="1.4724874"
-     inkscape:cx="958.92163"
-     inkscape:cy="356.87912"
+     inkscape:zoom="1.4767748"
+     inkscape:cx="397.48782"
+     inkscape:cy="465.54152"
      inkscape:window-width="1920"
      inkscape:window-height="1007"
      inkscape:window-x="0"
@@ -698,5 +698,51 @@
          x="262.49792"
          y="101.73943"
          id="tspan99">Alejado de entry_orig</tspan></text>
+    <path
+       style="fill:#008000;fill-opacity:0.589709;stroke:#1a1a1a;stroke-width:0.6;stroke-linecap:round"
+       d="M 97.259451,119.64071 H 137.09162"
+       id="path7" />
+    <path
+       style="fill:#000000;fill-opacity:0.589709;stroke:#ff0000;stroke-width:0.8;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#Triangle)"
+       d="m 138.02507,123.52706 h -8.3164"
+       id="path8" />
+    <path
+       style="fill:#008000;fill-opacity:0.589709;stroke:#ff00ff;stroke-width:0.400001;stroke-linecap:round;stroke-dasharray:1.6, 0.400001;stroke-dashoffset:0"
+       d="M 97.332537,109.05731 H 137.91803"
+       id="path10" />
+    <path
+       style="fill:#008000;fill-opacity:0.589709;stroke:#00ff00;stroke-width:0.6;stroke-linecap:round"
+       d="m 102.17378,117.70983 h 32.07381"
+       id="path15" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.82222px;font-family:Arial;-inkscape-font-specification:Arial;text-align:center;text-anchor:middle;fill:#000000;fill-opacity:0.589709;stroke:#000000;stroke-width:0.1;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1"
+       x="119.21597"
+       y="94.553833"
+       id="text15"><tspan
+         sodipodi:role="line"
+         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:2.82222px;font-family:Arial;-inkscape-font-specification:Arial;fill:#000000;stroke:#000000;stroke-width:0.1;stroke-dasharray:none;stroke-opacity:1"
+         x="119.21597"
+         y="94.553833"
+         id="tspan15">OPENED_LONG, ts activated</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:0.589709;stroke:#1a1a1a;stroke-width:0.1;stroke-linecap:round;stroke-dasharray:0.4, 0.1;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect15"
+       width="56.151684"
+       height="53.710262"
+       x="91.106369"
+       y="90.676811" />
+    <path
+       style="fill:none;fill-opacity:0.589709;stroke:#0000ff;stroke-width:0.4;stroke-linecap:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker-end:url(#Triangle)"
+       d="m 125.18885,117.86775 v 4.32444"
+       id="path17" />
+    <path
+       style="fill:#000000;fill-opacity:0.589709;stroke:#ff0000;stroke-width:0.8;stroke-linecap:round;stroke-dasharray:none;stroke-opacity:1;marker-end:url(#Triangle)"
+       d="m 128.97838,127.75666 h -8.3164"
+       id="path18" />
+    <path
+       style="fill:none;fill-opacity:0.589709;stroke:#ff0000;stroke-width:0.4;stroke-linecap:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker-start:url(#marker39);marker-end:url(#marker39)"
+       d="m 134.27316,121.08936 v 4.71865"
+       id="path19" />
   </g>
 </svg>
