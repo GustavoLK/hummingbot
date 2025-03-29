@@ -25,6 +25,7 @@ from hummingbot.core.data_type.cancellation_result import CancellationResult
 from hummingbot.core.data_type.common import OrderType, PositionAction, PositionMode, TradeType
 from hummingbot.core.data_type.in_flight_order import InFlightOrder, OrderState, OrderUpdate
 from hummingbot.core.data_type.trade_fee import AddedToCostTradeFee, TokenAmount, TradeFeeBase
+from hummingbot.core.event.events import BuyOrderCreatedEvent, SellOrderCreatedEvent
 from hummingbot.core.network_iterator import NetworkStatus
 
 
@@ -110,7 +111,7 @@ class HyperliquidPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.Perpe
                  'premium': '0.00036632', 'prevDayPx': '35242.0'},
                 {'dayNtlVlm': '8781185.14306', 'funding': '0.00005324', 'impactPxs': ['1922.9', '1923.1'],
                  'markPx': '1923.1',
-                 'midPx': '1923.05', 'openInterest': '638.8957', 'oraclePx': '1921.7',
+                 'midPx': '1923.05', 'openInterest': '638.89157', 'oraclePx': '1921.7',
                  'premium': '0.00067648',
                  'prevDayPx': '1877.1'
                  }]
@@ -327,10 +328,12 @@ class HyperliquidPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.Perpe
 
         step_size = Decimal(str(10 ** -coin_info.get("szDecimals")))
         price_size = Decimal(str(10 ** -len(price_info.get("markPx").split('.')[1])))
+        _min_order_size = Decimal(str(10 ** -len(price_info.get("openInterest").split('.')[1])))
 
         return TradingRule(self.trading_pair,
                            min_base_amount_increment=step_size,
                            min_price_increment=price_size,
+                           min_order_size=_min_order_size,
                            buy_order_collateral_token=collateral_token,
                            sell_order_collateral_token=collateral_token,
                            )
@@ -477,6 +480,20 @@ class HyperliquidPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.Perpe
         regex_url = re.compile(f"^{url_order_status}".replace(".", r"\.").replace("?", r"\?") + ".*")
 
         response = {"code": -2013, "msg": "order"}
+        mock_api.post(regex_url, body=json.dumps(response), callback=callback)
+        return url_order_status
+
+    def configure_order_not_found_unknow_error_order_status_response(
+            self, order: InFlightOrder, mock_api: aioresponses,
+            callback: Optional[Callable] = lambda *args, **kwargs: None
+    ):
+        url_order_status = web_utils.public_rest_url(
+            CONSTANTS.ORDER_URL
+        )
+
+        regex_url = re.compile(f"^{url_order_status}".replace(".", r"\.").replace("?", r"\?") + ".*")
+
+        response = {'status': 'unknownOid'}
         mock_api.post(regex_url, body=json.dumps(response), callback=callback)
         return url_order_status
 
@@ -1041,6 +1058,28 @@ class HyperliquidPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.Perpe
         pass
 
     @aioresponses()
+    def test_update_order_status_when_exchange_order_id_timeout(self, mock_api):
+        self.exchange._set_current_timestamp(1640780000)
+
+        self.exchange.start_tracking_order(
+            order_id=self.client_order_id_prefix + "1",
+            exchange_order_id=None,
+            trading_pair=self.trading_pair,
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.BUY,
+            price=Decimal("10000"),
+            amount=Decimal("1"),
+        )
+        order: InFlightOrder = self.exchange.in_flight_orders[self.client_order_id_prefix + "1"]
+
+        self.configure_order_not_found_unknow_error_order_status_response(
+            order=order,
+            mock_api=mock_api)
+        with self.assertRaises(asyncio.TimeoutError):
+            self.async_run_with_timeout(self.exchange._update_order_status())
+        self.assertFalse(order.is_done)
+
+    @aioresponses()
     def test_lost_order_removed_if_not_found_during_order_status_update(self, mock_api):
         self.exchange._set_current_timestamp(1640780000)
         request_sent_event = asyncio.Event()
@@ -1322,7 +1361,7 @@ class HyperliquidPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.Perpe
                 order=order,
                 request_call=cancel_request)
 
-        self.assertEquals(0, len(self.order_cancelled_logger.event_log))
+        self.assertEqual(0, len(self.order_cancelled_logger.event_log))
         self.assertTrue(
             any(
                 log.msg.startswith(f"Failed to cancel order {order.client_order_id}")
@@ -1566,3 +1605,188 @@ class HyperliquidPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.Perpe
                 min_base_amount_increment=Decimal(str(0.000001)),
             )
         }
+
+    @aioresponses()
+    def test_create_buy_limit_order_successfully(self, mock_api):
+        """Open long position"""
+        self._simulate_trading_rules_initialized()
+        request_sent_event = asyncio.Event()
+        self.exchange._set_current_timestamp(1640780000)
+
+        url = self.order_creation_url
+
+        creation_response = self.order_creation_request_successful_mock_response
+
+        mock_api.post(url,
+                      body=json.dumps(creation_response),
+                      callback=lambda *args, **kwargs: request_sent_event.set())
+
+        leverage = 2
+        self.exchange._perpetual_trading.set_leverage(self.trading_pair, leverage)
+        order_id = self.place_buy_order()
+        self.async_run_with_timeout(request_sent_event.wait())
+
+        order_request = self._all_executed_requests(mock_api, url)[0]
+        self.validate_auth_credentials_present(order_request)
+        self.assertIn(order_id, self.exchange.in_flight_orders)
+        self.validate_order_creation_request(
+            order=self.exchange.in_flight_orders[order_id],
+            request_call=order_request)
+
+        create_event: BuyOrderCreatedEvent = self.buy_order_created_logger.event_log[0]
+        self.assertEqual(self.exchange.current_timestamp,
+                         create_event.timestamp)
+        self.assertEqual(self.trading_pair, create_event.trading_pair)
+        self.assertEqual(OrderType.LIMIT, create_event.type)
+        self.assertEqual(Decimal("100.000000"), create_event.amount)
+        self.assertEqual(Decimal("10000.0000"), create_event.price)
+        self.assertEqual(order_id, create_event.order_id)
+        self.assertEqual(str(self.expected_exchange_order_id),
+                         create_event.exchange_order_id)
+        self.assertEqual(leverage, create_event.leverage)
+        self.assertEqual(PositionAction.OPEN.value, create_event.position)
+
+        self.assertTrue(
+            self.is_logged(
+                "INFO",
+                f"Created {OrderType.LIMIT.name} {TradeType.BUY.name} order {order_id} for "
+                f"{Decimal('100.000000')} to {PositionAction.OPEN.name} a {self.trading_pair} position "
+                f"at {Decimal('10000')}."
+            )
+        )
+
+    @aioresponses()
+    def test_create_order_to_close_long_position(self, mock_api):
+        self._simulate_trading_rules_initialized()
+        request_sent_event = asyncio.Event()
+        self.exchange._set_current_timestamp(1640780000)
+
+        url = self.order_creation_url
+        creation_response = self.order_creation_request_successful_mock_response
+
+        mock_api.post(url,
+                      body=json.dumps(creation_response),
+                      callback=lambda *args, **kwargs: request_sent_event.set())
+        leverage = 5
+        self.exchange._perpetual_trading.set_leverage(self.trading_pair, leverage)
+        order_id = self.place_sell_order(position_action=PositionAction.CLOSE)
+        self.async_run_with_timeout(request_sent_event.wait())
+
+        order_request = self._all_executed_requests(mock_api, url)[0]
+        self.validate_auth_credentials_present(order_request)
+        self.assertIn(order_id, self.exchange.in_flight_orders)
+        self.validate_order_creation_request(
+            order=self.exchange.in_flight_orders[order_id],
+            request_call=order_request)
+
+        create_event: SellOrderCreatedEvent = self.sell_order_created_logger.event_log[0]
+        self.assertEqual(self.exchange.current_timestamp, create_event.timestamp)
+        self.assertEqual(self.trading_pair, create_event.trading_pair)
+        self.assertEqual(OrderType.LIMIT, create_event.type)
+        self.assertEqual(Decimal("100"), create_event.amount)
+        self.assertEqual(Decimal("10000"), create_event.price)
+        self.assertEqual(order_id, create_event.order_id)
+        self.assertEqual(str(self.expected_exchange_order_id), create_event.exchange_order_id)
+        self.assertEqual(leverage, create_event.leverage)
+        self.assertEqual(PositionAction.CLOSE.value, create_event.position)
+
+        self.assertTrue(
+            self.is_logged(
+                "INFO",
+                f"Created {OrderType.LIMIT.name} {TradeType.SELL.name} order {order_id} for "
+                f"{Decimal('100.000000')} to {PositionAction.CLOSE.name} a {self.trading_pair} position "
+                f"at {Decimal('10000')}."
+            )
+        )
+
+    @aioresponses()
+    def test_create_order_to_close_short_position(self, mock_api):
+        self._simulate_trading_rules_initialized()
+        request_sent_event = asyncio.Event()
+        self.exchange._set_current_timestamp(1640780000)
+
+        url = self.order_creation_url
+
+        creation_response = self.order_creation_request_successful_mock_response
+
+        mock_api.post(url,
+                      body=json.dumps(creation_response),
+                      callback=lambda *args, **kwargs: request_sent_event.set())
+        leverage = 4
+        self.exchange._perpetual_trading.set_leverage(self.trading_pair, leverage)
+        order_id = self.place_buy_order(position_action=PositionAction.CLOSE)
+        self.async_run_with_timeout(request_sent_event.wait())
+
+        order_request = self._all_executed_requests(mock_api, url)[0]
+        self.validate_auth_credentials_present(order_request)
+        self.assertIn(order_id, self.exchange.in_flight_orders)
+        self.validate_order_creation_request(
+            order=self.exchange.in_flight_orders[order_id],
+            request_call=order_request)
+
+        create_event: BuyOrderCreatedEvent = self.buy_order_created_logger.event_log[0]
+        self.assertEqual(self.exchange.current_timestamp,
+                         create_event.timestamp)
+        self.assertEqual(self.trading_pair, create_event.trading_pair)
+        self.assertEqual(OrderType.LIMIT, create_event.type)
+        self.assertEqual(Decimal("100"), create_event.amount)
+        self.assertEqual(Decimal("10000"), create_event.price)
+        self.assertEqual(order_id, create_event.order_id)
+        self.assertEqual(str(self.expected_exchange_order_id),
+                         create_event.exchange_order_id)
+        self.assertEqual(leverage, create_event.leverage)
+        self.assertEqual(PositionAction.CLOSE.value, create_event.position)
+
+        self.assertTrue(
+            self.is_logged(
+                "INFO",
+                f"Created {OrderType.LIMIT.name} {TradeType.BUY.name} order {order_id} for "
+                f"{Decimal('100.000000')} to {PositionAction.CLOSE.name} a {self.trading_pair} position "
+                f"at {Decimal('10000')}."
+            )
+        )
+
+    @aioresponses()
+    def test_create_sell_limit_order_successfully(self, mock_api):
+        """Open short position"""
+        self._simulate_trading_rules_initialized()
+        request_sent_event = asyncio.Event()
+        self.exchange._set_current_timestamp(1640780000)
+
+        url = self.order_creation_url
+        creation_response = self.order_creation_request_successful_mock_response
+
+        mock_api.post(url,
+                      body=json.dumps(creation_response),
+                      callback=lambda *args, **kwargs: request_sent_event.set())
+        leverage = 3
+        self.exchange._perpetual_trading.set_leverage(self.trading_pair, leverage)
+        order_id = self.place_sell_order()
+        self.async_run_with_timeout(request_sent_event.wait())
+
+        order_request = self._all_executed_requests(mock_api, url)[0]
+        self.validate_auth_credentials_present(order_request)
+        self.assertIn(order_id, self.exchange.in_flight_orders)
+        self.validate_order_creation_request(
+            order=self.exchange.in_flight_orders[order_id],
+            request_call=order_request)
+
+        create_event: SellOrderCreatedEvent = self.sell_order_created_logger.event_log[0]
+        self.assertEqual(self.exchange.current_timestamp, create_event.timestamp)
+        self.assertEqual(self.trading_pair, create_event.trading_pair)
+        self.assertEqual(OrderType.LIMIT, create_event.type)
+        self.assertEqual(Decimal("100"), create_event.amount)
+        self.assertEqual(Decimal("10000"), create_event.price)
+        self.assertEqual(order_id, create_event.order_id)
+        self.assertEqual(str(self.expected_exchange_order_id), create_event.exchange_order_id)
+        self.assertEqual(leverage, create_event.leverage)
+        self.assertEqual(PositionAction.OPEN.value, create_event.position)
+
+        self.assertTrue(
+            self.is_logged(
+                "INFO",
+                f"Created {OrderType.LIMIT.name} {TradeType.SELL.name} order {order_id} for "
+                f"{Decimal('100.000000')} to {PositionAction.OPEN.name} a {self.trading_pair} position "
+                f"at {Decimal('10000')}."
+            )
+        )

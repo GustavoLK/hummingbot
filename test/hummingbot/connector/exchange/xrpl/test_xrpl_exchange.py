@@ -1,11 +1,11 @@
 import asyncio
 import time
-import unittest
 from decimal import Decimal
-from typing import Awaitable
+from unittest.async_case import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from xrpl.models import Request, Response, Transaction
+from xrpl.asyncio.clients import XRPLRequestFailureException
+from xrpl.models import OfferCancel, Request, Response, Transaction
 from xrpl.models.requests.request import RequestMethod
 from xrpl.models.response import ResponseStatus, ResponseType
 from xrpl.models.transactions.types import TransactionType
@@ -25,14 +25,13 @@ from hummingbot.core.data_type.order_book_tracker import OrderBookTracker
 from hummingbot.core.data_type.user_stream_tracker import UserStreamTracker
 
 
-class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
+class XRPLAPIOrderBookDataSourceUnitTests(IsolatedAsyncioTestCase):
     # logging.Level required to receive logs from the data source logger
     level = 0
 
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.ev_loop = asyncio.get_event_loop()
         cls.base_asset = "SOLO"
         cls.quote_asset = "XRP"
         cls.trading_pair = f"{cls.base_asset}-{cls.quote_asset}"
@@ -49,14 +48,20 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             xrpl_secret_key="",
             wss_node_url="wss://sample.com",
             wss_second_node_url="wss://sample.com",
+            wss_third_node_url="wss://sample.com",
             trading_pairs=[self.trading_pair, self.trading_pair_usd],
             trading_required=False,
         )
+
+        self.connector._sleep = AsyncMock()
+
         self.data_source = XRPLAPIOrderBookDataSource(
             trading_pairs=[self.trading_pair, self.trading_pair_usd],
             connector=self.connector,
             api_factory=self.connector._web_assistants_factory,
         )
+
+        self.data_source._sleep = MagicMock()
         self.data_source.logger().setLevel(1)
         self.data_source.logger().addHandler(self)
         self.data_source._request_order_book_snapshot = AsyncMock()
@@ -126,9 +131,9 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
         self.connector._user_stream_tracker = UserStreamTracker(data_source=self.user_stream_source)
 
-        self.connector._xrpl_client = AsyncMock()
-        self.connector._xrpl_client.__aenter__.return_value = self.connector._xrpl_client
-        self.connector._xrpl_client.__aexit__.return_value = None
+        self.connector._xrpl_query_client = AsyncMock()
+        self.connector._xrpl_query_client.__aenter__.return_value = self.connector._xrpl_query_client
+        self.connector._xrpl_query_client.__aexit__.return_value = None
 
         self.connector._xrpl_place_order_client = AsyncMock()
         self.connector._xrpl_place_order_client.__aenter__.return_value = self.connector._xrpl_place_order_client
@@ -148,10 +153,6 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     def _create_exception_and_unlock_test_with_event(self, exception):
         self.resume_test_event.set()
         raise exception
-
-    def async_run_with_timeout(self, coroutine: Awaitable, timeout: float = 5):
-        ret = self.ev_loop.run_until_complete(asyncio.wait_for(coroutine, timeout))
-        return ret
 
     def _trade_update_event(self):
         trade_data = {
@@ -663,150 +664,231 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
         return resp
 
+    def _client_response_account_lines(self):
+        resp = Response(
+            status=ResponseStatus.SUCCESS,
+            result={
+                "account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
+                "ledger_hash": "6626B7AC7E184B86EE29D8B9459E0BC0A56E12C8DA30AE747051909CF16136D3",  # noqa: mock
+                "ledger_index": 89692233,
+                "validated": True,
+                "limit": 200,
+                "lines": [
+                    {
+                        "account": "rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B",  # noqa: mock
+                        "balance": "0.9957725256649131",
+                        "currency": "USD",
+                        "limit": "0",
+                        "limit_peer": "0",
+                        "quality_in": 0,
+                        "quality_out": 0,
+                        "no_ripple": True,
+                        "no_ripple_peer": False,
+                    },
+                    {
+                        "account": "rcEGREd8NmkKRE8GE424sksyt1tJVFZwu",  # noqa: mock
+                        "balance": "2.981957518895808",
+                        "currency": "5553444300000000000000000000000000000000",  # noqa: mock
+                        "limit": "0",
+                        "limit_peer": "0",
+                        "quality_in": 0,
+                        "quality_out": 0,
+                        "no_ripple": True,
+                        "no_ripple_peer": False,
+                    },
+                    {
+                        "account": "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq",  # noqa: mock
+                        "balance": "0.011094399237562",
+                        "currency": "USD",
+                        "limit": "0",
+                        "limit_peer": "0",
+                        "quality_in": 0,
+                        "quality_out": 0,
+                        "no_ripple": True,
+                        "no_ripple_peer": False,
+                    },
+                    {
+                        "account": "rpakCr61Q92abPXJnVboKENmpKssWyHpwu",  # noqa: mock
+                        "balance": "104.9021857197376",
+                        "currency": "457175696C69627269756D000000000000000000",  # noqa: mock
+                        "limit": "0",
+                        "limit_peer": "0",
+                        "quality_in": 0,
+                        "quality_out": 0,
+                        "no_ripple": True,
+                        "no_ripple_peer": False,
+                    },
+                    {
+                        "account": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz",  # noqa: mock
+                        "balance": "35.95165691730148",
+                        "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                        "limit": "1000000000",
+                        "limit_peer": "0",
+                        "quality_in": 0,
+                        "quality_out": 0,
+                        "no_ripple": True,
+                        "no_ripple_peer": False,
+                    },
+                ],
+            },  # noqa: mock
+            id="account_lines_144811",
+            type=ResponseType.RESPONSE,
+        )
+
+        return resp
+
     def _client_response_account_objects(self):
         resp = Response(
             status=ResponseStatus.SUCCESS,
             result={
-                "account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
+                "account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
                 "account_objects": [
                     {
                         "Balance": {
-                            "currency": "5553444300000000000000000000000000000000", # noqa: mock
-                            "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji", # noqa: mock
+                            "currency": "5553444300000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji",  # noqa: mock
                             "value": "2.981957518895808",
                         },
                         "Flags": 1114112,
                         "HighLimit": {
-                            "currency": "5553444300000000000000000000000000000000", # noqa: mock
-                            "issuer": "rcEGREd8NmkKRE8GE424sksyt1tJVFZwu", # noqa: mock
+                            "currency": "5553444300000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rcEGREd8NmkKRE8GE424sksyt1tJVFZwu",  # noqa: mock
                             "value": "0",
                         },
                         "HighNode": "f9",
                         "LedgerEntryType": "RippleState",
                         "LowLimit": {
-                            "currency": "5553444300000000000000000000000000000000", # noqa: mock
-                            "issuer": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
+                            "currency": "5553444300000000000000000000000000000000",  # noqa: mock
+                            "issuer": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
                             "value": "0",
                         },
                         "LowNode": "0",
-                        "PreviousTxnID": "C6EFE5E21ABD5F457BFCCE6D5393317B90821F443AD41FF193620E5980A52E71", # noqa: mock
+                        "PreviousTxnID": "C6EFE5E21ABD5F457BFCCE6D5393317B90821F443AD41FF193620E5980A52E71",  # noqa: mock
                         "PreviousTxnLgrSeq": 86277627,
-                        "index": "55049B8164998B0566FC5CDB3FC7162280EFE5A84DB9333312D3DFF98AB52380", # noqa: mock
+                        "index": "55049B8164998B0566FC5CDB3FC7162280EFE5A84DB9333312D3DFF98AB52380",  # noqa: mock
                     },
                     {
-                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
-                        "BookDirectory": "C73FAC6C294EBA5B9E22A8237AAE80725E85372510A6CA794F10652F287D59AD", # noqa: mock
+                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
+                        "BookDirectory": "C73FAC6C294EBA5B9E22A8237AAE80725E85372510A6CA794F10652F287D59AD",  # noqa: mock
                         "BookNode": "0",
                         "Flags": 131072,
                         "LedgerEntryType": "Offer",
                         "OwnerNode": "0",
-                        "PreviousTxnID": "44038CD94CDD0A6FD7912F788FA5FBC575A3C44948E31F4C21B8BC3AA0C2B643", # noqa: mock
+                        "PreviousTxnID": "44038CD94CDD0A6FD7912F788FA5FBC575A3C44948E31F4C21B8BC3AA0C2B643",  # noqa: mock
                         "PreviousTxnLgrSeq": 89078756,
                         "Sequence": 84439998,
                         "TakerGets": "499998",
                         "TakerPays": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz",  # noqa: mock
                             "value": "2.307417192565501",
                         },
-                        "index": "BE4ACB6610B39F2A9CD1323F63D479177917C02AA8AF2122C018D34AAB6F4A35", # noqa: mock
+                        "index": "BE4ACB6610B39F2A9CD1323F63D479177917C02AA8AF2122C018D34AAB6F4A35",  # noqa: mock
                     },
                     {
                         "Balance": {
                             "currency": "USD",
-                            "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji", # noqa: mock
+                            "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji",  # noqa: mock
                             "value": "0.011094399237562",
                         },
                         "Flags": 1114112,
-                        "HighLimit": {"currency": "USD", "issuer": "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq", "value": "0"}, # noqa: mock
+                        "HighLimit": {
+                            "currency": "USD",
+                            "issuer": "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq",
+                            "value": "0",
+                        },  # noqa: mock
                         "HighNode": "22d3",
                         "LedgerEntryType": "RippleState",
-                        "LowLimit": {"currency": "USD", "issuer": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", "value": "0"}, # noqa: mock
+                        "LowLimit": {
+                            "currency": "USD",
+                            "issuer": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",
+                            "value": "0",
+                        },  # noqa: mock
                         "LowNode": "0",
-                        "PreviousTxnID": "1A9E685EA694157050803B76251C0A6AFFCF1E69F883BF511CF7A85C3AC002B8", # noqa: mock
+                        "PreviousTxnID": "1A9E685EA694157050803B76251C0A6AFFCF1E69F883BF511CF7A85C3AC002B8",  # noqa: mock
                         "PreviousTxnLgrSeq": 85648064,
-                        "index": "C510DDAEBFCE83469032E78B9F41D352DABEE2FB454E6982AA5F9D4ECC4D56AA", # noqa: mock
+                        "index": "C510DDAEBFCE83469032E78B9F41D352DABEE2FB454E6982AA5F9D4ECC4D56AA",  # noqa: mock
                     },
                     {
-                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
-                        "BookDirectory": "C73FAC6C294EBA5B9E22A8237AAE80725E85372510A6CA794F10659A9DE833CA", # noqa: mock
+                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
+                        "BookDirectory": "C73FAC6C294EBA5B9E22A8237AAE80725E85372510A6CA794F10659A9DE833CA",  # noqa: mock
                         "BookNode": "0",
                         "Flags": 131072,
                         "LedgerEntryType": "Offer",
                         "OwnerNode": "0",
-                        "PreviousTxnID": "262201134A376F2E888173680EDC4E30E2C07A6FA94A8C16603EB12A776CBC66", # noqa: mock
+                        "PreviousTxnID": "262201134A376F2E888173680EDC4E30E2C07A6FA94A8C16603EB12A776CBC66",  # noqa: mock
                         "PreviousTxnLgrSeq": 89078756,
                         "Sequence": 84439997,
                         "TakerGets": "499998",
                         "TakerPays": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz",  # noqa: mock
                             "value": "2.307647957361237",
                         },
-                        "index": "D6F2B37690FA7540B7640ACC61AA2641A6E803DAF9E46CC802884FA5E1BF424E", # noqa: mock
+                        "index": "D6F2B37690FA7540B7640ACC61AA2641A6E803DAF9E46CC802884FA5E1BF424E",  # noqa: mock
                     },
                     {
-                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
-                        "BookDirectory": "5C8970D155D65DB8FF49B291D7EFFA4A09F9E8A68D9974B25A07B39757FA194D", # noqa: mock
+                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
+                        "BookDirectory": "5C8970D155D65DB8FF49B291D7EFFA4A09F9E8A68D9974B25A07B39757FA194D",  # noqa: mock
                         "BookNode": "0",
                         "Flags": 131072,
                         "LedgerEntryType": "Offer",
                         "OwnerNode": "0",
-                        "PreviousTxnID": "254F74BF0E5A2098DDE998609F4E8697CCF6A7FD61D93D76057467366A18DA24", # noqa: mock
+                        "PreviousTxnID": "254F74BF0E5A2098DDE998609F4E8697CCF6A7FD61D93D76057467366A18DA24",  # noqa: mock
                         "PreviousTxnLgrSeq": 89078757,
                         "Sequence": 84440000,
                         "TakerGets": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz",  # noqa: mock
                             "value": "2.30649459472761",
                         },
                         "TakerPays": "499999",
-                        "index": "D8F57C7C230FA5DE98E8FEB6B75783693BDECAD1266A80538692C90138E7BADE", # noqa: mock
+                        "index": "D8F57C7C230FA5DE98E8FEB6B75783693BDECAD1266A80538692C90138E7BADE",  # noqa: mock
                     },
                     {
                         "Balance": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji",  # noqa: mock
                             "value": "47.21480375660969",
                         },
                         "Flags": 1114112,
                         "HighLimit": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz",  # noqa: mock
                             "value": "0",
                         },
                         "HighNode": "3799",
                         "LedgerEntryType": "RippleState",
                         "LowLimit": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
                             "value": "1000000000",
                         },
                         "LowNode": "0",
-                        "PreviousTxnID": "E1260EC17725167D0407F73F6B73D7DAF1E3037249B54FC37F2E8B836703AB95", # noqa: mock
+                        "PreviousTxnID": "E1260EC17725167D0407F73F6B73D7DAF1E3037249B54FC37F2E8B836703AB95",  # noqa: mock
                         "PreviousTxnLgrSeq": 89077268,
-                        "index": "E1C84325F137AD05CB78F59968054BCBFD43CB4E70F7591B6C3C1D1C7E44C6FC", # noqa: mock
+                        "index": "E1C84325F137AD05CB78F59968054BCBFD43CB4E70F7591B6C3C1D1C7E44C6FC",  # noqa: mock
                     },
                     {
-                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", # noqa: mock
-                        "BookDirectory": "5C8970D155D65DB8FF49B291D7EFFA4A09F9E8A68D9974B25A07B2FFFC6A7DA8", # noqa: mock
+                        "Account": "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK",  # noqa: mock
+                        "BookDirectory": "5C8970D155D65DB8FF49B291D7EFFA4A09F9E8A68D9974B25A07B2FFFC6A7DA8",  # noqa: mock
                         "BookNode": "0",
                         "Flags": 131072,
                         "LedgerEntryType": "Offer",
                         "OwnerNode": "0",
-                        "PreviousTxnID": "819FF36C6F44F3F858B25580F1E3A900F56DCC59F2398626DB35796AF9E47E7A", # noqa: mock
+                        "PreviousTxnID": "819FF36C6F44F3F858B25580F1E3A900F56DCC59F2398626DB35796AF9E47E7A",  # noqa: mock
                         "PreviousTxnLgrSeq": 89078756,
                         "Sequence": 84439999,
                         "TakerGets": {
-                            "currency": "534F4C4F00000000000000000000000000000000", # noqa: mock
-                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz", # noqa: mock
+                            "currency": "534F4C4F00000000000000000000000000000000",  # noqa: mock
+                            "issuer": "rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz",  # noqa: mock
                             "value": "2.307186473918109",
                         },
                         "TakerPays": "499999",
-                        "index": "ECF76E93DBD7923D0B352A7719E5F9BBF6A43D5BA80173495B0403C646184301", # noqa: mock
+                        "index": "ECF76E93DBD7923D0B352A7719E5F9BBF6A43D5BA80173495B0403C646184301",  # noqa: mock
                     },
                 ],
-                "ledger_hash": "5A76A3A3D115DBC7CE0E4D9868D1EA15F593C8D74FCDF1C0153ED003B5621671", # noqa: mock
+                "ledger_hash": "5A76A3A3D115DBC7CE0E4D9868D1EA15F593C8D74FCDF1C0153ED003B5621671",  # noqa: mock
                 "ledger_index": 89078774,
                 "limit": 200,
                 "validated": True,
@@ -863,8 +945,8 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
         return resp
 
-    def test_get_new_order_book_successful(self):
-        self.async_run_with_timeout(self.connector._orderbook_ds.get_new_order_book(self.trading_pair))
+    async def test_get_new_order_book_successful(self):
+        await self.connector._orderbook_ds.get_new_order_book(self.trading_pair)
         order_book: OrderBook = self.connector.get_order_book(self.trading_pair)
 
         bids = list(order_book.bid_entries())
@@ -876,21 +958,25 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertEqual(0.22452700389932698, asks[0].price)
         self.assertEqual(91.846106, asks[0].amount)
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_sign")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_place_limit_order(
+    async def test_place_limit_order(
         self,
-        network_mock,
         process_order_update_mock,
         submit_mock,
         sign_mock,
         autofill_mock,
         verify_transaction_result_mock,
+        mock_async_websocket_client
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         autofill_mock.return_value = {}
         verify_transaction_result_mock.return_value = True, {}
         sign_mock.return_value = Transaction(
@@ -901,49 +987,37 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             status=ResponseStatus.SUCCESS, result={"engine_result": "tesSUCCESS", "engine_result_message": "something"}
         )
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot",
-                self.trading_pair,
-                Decimal("12345.12345678901234567"),
-                TradeType.BUY,
-                OrderType.LIMIT,
-                Decimal("1"),
-            )
-        )
+        await self.connector._place_order(
+            "hbot",
+            self.trading_pair,
+            Decimal("12345.12345678901234567"),
+            TradeType.BUY,
+            OrderType.LIMIT,
+            Decimal("1"))
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot",
-                self.trading_pair,
-                Decimal("12345.12345678901234567"),
-                TradeType.SELL,
-                OrderType.LIMIT,
-                Decimal("1234567.123456789"),
-            )
-        )
+        await self.connector._place_order(
+            "hbot",
+            self.trading_pair,
+            Decimal("12345.12345678901234567"),
+            TradeType.SELL,
+            OrderType.LIMIT,
+            Decimal("1234567.123456789"))
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot",
-                self.trading_pair_usd,
-                Decimal("12345.12345678901234567"),
-                TradeType.BUY,
-                OrderType.LIMIT,
-                Decimal("1234567.123456789"),
-            )
-        )
+        await self.connector._place_order(
+            "hbot",
+            self.trading_pair_usd,
+            Decimal("12345.12345678901234567"),
+            TradeType.BUY,
+            OrderType.LIMIT,
+            Decimal("1234567.123456789"))
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot",
-                self.trading_pair_usd,
-                Decimal("12345.12345678901234567"),
-                TradeType.SELL,
-                OrderType.LIMIT,
-                Decimal("1234567.123456789"),
-            )
-        )
+        await self.connector._place_order(
+            "hbot",
+            self.trading_pair_usd,
+            Decimal("12345.12345678901234567"),
+            TradeType.SELL,
+            OrderType.LIMIT,
+            Decimal("1234567.123456789"))
 
         order_id = self.connector.buy(
             self.trading_pair_usd,
@@ -963,28 +1037,31 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
         self.assertEqual(order_id.split("-")[0], "hbot")
 
-        self.assertTrue(network_mock.called)
         self.assertTrue(process_order_update_mock.called)
         self.assertTrue(verify_transaction_result_mock.called)
         self.assertTrue(submit_mock.called)
         self.assertTrue(autofill_mock.called)
         self.assertTrue(sign_mock.called)
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_sign")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_place_market_order(
+    async def test_place_market_order(
         self,
-        network_mock,
         process_order_update_mock,
         submit_mock,
         sign_mock,
         autofill_mock,
         verify_transaction_result_mock,
+        mock_async_websocket_client
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         autofill_mock.return_value = {}
         verify_transaction_result_mock.return_value = True, {}
         sign_mock.return_value = Transaction(
@@ -995,29 +1072,28 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             status=ResponseStatus.SUCCESS, result={"engine_result": "tesSUCCESS", "engine_result_message": "something"}
         )
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot", self.trading_pair, Decimal("1"), TradeType.BUY, OrderType.MARKET, Decimal("1")
-            )
+        class MockGetPriceReturn:
+            def __init__(self, result_price):
+                self.result_price = result_price
+
+        # get_price_for_volume_mock.return_value = Decimal("1")
+        self.connector.order_books[self.trading_pair] = MagicMock()
+        self.connector.order_books[self.trading_pair].get_price_for_volume = MagicMock(
+            return_value=MockGetPriceReturn(result_price=Decimal("1"))
         )
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot", self.trading_pair, Decimal("1"), TradeType.SELL, OrderType.MARKET, Decimal("1")
-            )
+        self.connector.order_books[self.trading_pair_usd] = MagicMock()
+        self.connector.order_books[self.trading_pair_usd].get_price_for_volume = MagicMock(
+            return_value=MockGetPriceReturn(result_price=Decimal("1"))
         )
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot", self.trading_pair_usd, Decimal("1"), TradeType.BUY, OrderType.MARKET, Decimal("1")
-            )
-        )
+        await self.connector._place_order("hbot", self.trading_pair, Decimal("1"), TradeType.BUY, OrderType.MARKET, Decimal("1"))
 
-        self.async_run_with_timeout(
-            self.connector._place_order(
-                "hbot", self.trading_pair_usd, Decimal("1"), TradeType.SELL, OrderType.MARKET, Decimal("1")
-            )
-        )
+        await self.connector._place_order("hbot", self.trading_pair, Decimal("1"), TradeType.SELL, OrderType.MARKET, Decimal("1"))
+
+        await self.connector._place_order("hbot", self.trading_pair_usd, Decimal("1"), TradeType.BUY, OrderType.MARKET, Decimal("1"))
+
+        await self.connector._place_order("hbot", self.trading_pair_usd, Decimal("1"), TradeType.SELL, OrderType.MARKET, Decimal("1"))
 
         order_id = self.connector.buy(
             self.trading_pair_usd,
@@ -1037,7 +1113,6 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
         self.assertEqual(order_id.split("-")[0], "hbot")
 
-        self.assertTrue(network_mock.called)
         self.assertTrue(process_order_update_mock.called)
         self.assertTrue(verify_transaction_result_mock.called)
         self.assertTrue(submit_mock.called)
@@ -1045,52 +1120,46 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertTrue(sign_mock.called)
 
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.autofill", new_callable=MagicMock)
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.submit", new_callable=MagicMock)
-    def test_place_order_exception_handling_not_found_market(self, submit_mock, autofill_mock):
+    # @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.submit", new_callable=MagicMock)
+    async def test_place_order_exception_handling_not_found_market(self, autofill_mock):
         with self.assertRaises(Exception) as context:
-            self.async_run_with_timeout(
-                self.connector._place_order(
-                    order_id="test_order",
-                    trading_pair="NOT_FOUND",
-                    amount=Decimal("1.0"),
-                    trade_type=TradeType.BUY,
-                    order_type=OrderType.MARKET,
-                    price=Decimal("1"),
-                )
-            )
+            await self.connector._place_order(
+                order_id="test_order",
+                trading_pair="NOT_FOUND",
+                amount=Decimal("1.0"),
+                trade_type=TradeType.BUY,
+                order_type=OrderType.MARKET,
+                price=Decimal("1"))
 
         # Verify the exception was raised and contains the expected message
         self.assertTrue("Market NOT_FOUND not found in markets list" in str(context.exception))
 
-        # Ensure the submit method was not called due to the exception in autofill
-        submit_mock.assert_not_called()
-
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.autofill", new_callable=MagicMock)
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.submit", new_callable=MagicMock)
-    def test_place_order_exception_handling_autofill(self, submit_mock, autofill_mock):
+    # @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.submit", new_callable=MagicMock)
+    async def test_place_order_exception_handling_autofill(self, autofill_mock, mock_async_websocket_client):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         # Simulate an exception during the autofill operation
         autofill_mock.side_effect = Exception("Test exception during autofill")
 
         with self.assertRaises(Exception) as context:
-            self.async_run_with_timeout(
-                self.connector._place_order(
-                    order_id="test_order",
-                    trading_pair="SOLO-XRP",
-                    amount=Decimal("1.0"),
-                    trade_type=TradeType.BUY,
-                    order_type=OrderType.MARKET,
-                    price=Decimal("1"),
-                )
-            )
+            await self.connector._place_order(
+                order_id="test_order",
+                trading_pair="SOLO-XRP",
+                amount=Decimal("1.0"),
+                trade_type=TradeType.BUY,
+                order_type=OrderType.MARKET,
+                price=Decimal("1"))
 
         # Verify the exception was raised and contains the expected message
         self.assertTrue(
             "Order None (test_order) creation failed: Test exception during autofill" in str(context.exception)
         )
 
-        # Ensure the submit method was not called due to the exception in autofill
-        submit_mock.assert_not_called()
-
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange_py_base.ExchangePyBase._sleep")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
@@ -1098,7 +1167,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_place_order_exception_handling_failed_verify(
+    async def test_place_order_exception_handling_failed_verify(
         self,
         network_mock,
         process_order_update_mock,
@@ -1107,7 +1176,12 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         autofill_mock,
         verify_transaction_result_mock,
         sleep_mock,
+        mock_async_websocket_client
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         autofill_mock.return_value = {}
         verify_transaction_result_mock.return_value = False, {}
         sign_mock.return_value = Transaction(
@@ -1119,16 +1193,13 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         )
 
         with self.assertRaises(Exception) as context:
-            self.async_run_with_timeout(
-                self.connector._place_order(
-                    "hbot",
-                    self.trading_pair_usd,
-                    Decimal("12345.12345678901234567"),
-                    TradeType.SELL,
-                    OrderType.LIMIT,
-                    Decimal("1234567.123456789"),
-                )
-            )
+            await self.connector._place_order(
+                "hbot",
+                self.trading_pair_usd,
+                Decimal("12345.12345678901234567"),
+                TradeType.SELL,
+                OrderType.LIMIT,
+                Decimal("1234567.123456789"))
 
         # # Verify the exception was raised and contains the expected message
         self.assertTrue(
@@ -1136,6 +1207,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             in str(context.exception)
         )
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange_py_base.ExchangePyBase._sleep")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
@@ -1143,7 +1215,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_place_order_exception_handling_none_verify_resp(
+    async def test_place_order_exception_handling_none_verify_resp(
         self,
         network_mock,
         process_order_update_mock,
@@ -1152,7 +1224,12 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         autofill_mock,
         verify_transaction_result_mock,
         sleep_mock,
+        mock_async_websocket_client
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         autofill_mock.return_value = {}
         verify_transaction_result_mock.return_value = False, None
         sign_mock.return_value = Transaction(
@@ -1164,20 +1241,18 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         )
 
         with self.assertRaises(Exception) as context:
-            self.async_run_with_timeout(
-                self.connector._place_order(
-                    "hbot",
-                    self.trading_pair_usd,
-                    Decimal("12345.12345678901234567"),
-                    TradeType.SELL,
-                    OrderType.LIMIT,
-                    Decimal("1234567.123456789"),
-                )
-            )
+            await self.connector._place_order(
+                "hbot",
+                self.trading_pair_usd,
+                Decimal("12345.12345678901234567"),
+                TradeType.SELL,
+                OrderType.LIMIT,
+                Decimal("1234567.123456789"))
 
         # # Verify the exception was raised and contains the expected message
         self.assertTrue("Order 1-1 (hbot) creation failed: Failed to place order hbot (1-1)" in str(context.exception))
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange_py_base.ExchangePyBase._sleep")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
@@ -1185,7 +1260,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_place_order_exception_handling_failed_submit(
+    async def test_place_order_exception_handling_failed_submit(
         self,
         network_mock,
         process_order_update_mock,
@@ -1194,7 +1269,12 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         autofill_mock,
         verify_transaction_result_mock,
         sleep_mock,
+        mock_async_websocket_client
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         autofill_mock.return_value = {}
         verify_transaction_result_mock.return_value = False, None
         sign_mock.return_value = Transaction(
@@ -1206,31 +1286,32 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         )
 
         with self.assertRaises(Exception) as context:
-            self.async_run_with_timeout(
-                self.connector._place_order(
-                    "hbot",
-                    self.trading_pair_usd,
-                    Decimal("12345.12345678901234567"),
-                    TradeType.SELL,
-                    OrderType.LIMIT,
-                    Decimal("1234567.123456789"),
-                )
-            )
+            await self.connector._place_order(
+                "hbot",
+                self.trading_pair_usd,
+                Decimal("12345.12345678901234567"),
+                TradeType.SELL,
+                OrderType.LIMIT,
+                Decimal("1234567.123456789"))
 
         # # Verify the exception was raised and contains the expected message
         self.assertTrue("Order 1-1 (hbot) creation failed: Failed to place order hbot (1-1)" in str(context.exception))
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_sign")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_place_cancel(
+    async def test_place_cancel(
         self,
-        network_mock,
         submit_mock,
         sign_mock,
         autofill_mock,
+        mock_async_websocket_client,
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         autofill_mock.return_value = {}
         sign_mock.return_value = Transaction(
             sequence=1, last_ledger_sequence=1, account="r1234", transaction_type=TransactionType.OFFER_CREATE
@@ -1250,33 +1331,36 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=1,
         )
 
-        self.async_run_with_timeout(self.connector._place_cancel("hbot", tracked_order=in_flight_order))
-        self.assertTrue(network_mock.called)
+        await self.connector._place_cancel("hbot", tracked_order=in_flight_order)
         self.assertTrue(submit_mock.called)
         self.assertTrue(autofill_mock.called)
         self.assertTrue(sign_mock.called)
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_sign")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_submit")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_trade_update")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.process_trade_fills")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._request_order_status")
-    def test_place_order_and_process_update(
+    async def test_place_order_and_process_update(
         self,
         request_order_status_mock,
         process_trade_fills_mock,
         process_trade_update_mock,
-        network_mock,
         process_order_update_mock,
         submit_mock,
         sign_mock,
         autofill_mock,
         verify_transaction_result_mock,
+        mock_async_websocket_client,
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         request_order_status_mock.return_value = OrderUpdate(
             trading_pair=self.trading_pair,
             new_state=OrderState.FILLED,
@@ -1304,10 +1388,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=1,
         )
 
-        exchange_order_id = self.async_run_with_timeout(
-            self.connector._place_order_and_process_update(order=in_flight_order)
-        )
-        self.assertTrue(network_mock.called)
+        exchange_order_id = await self.connector._place_order_and_process_update(order=in_flight_order)
         self.assertTrue(submit_mock.called)
         self.assertTrue(autofill_mock.called)
         self.assertTrue(sign_mock.called)
@@ -1316,6 +1397,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertTrue(process_trade_fills_mock.called)
         self.assertEqual("1-1", exchange_order_id)
 
+    @patch('hummingbot.connector.exchange.xrpl.xrpl_exchange.AsyncWebsocketClient')
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._verify_transaction_result")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_autofill")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.tx_sign")
@@ -1323,7 +1405,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._request_order_status")
-    def test_execute_order_cancel_and_process_update(
+    async def test_execute_order_cancel_and_process_update(
         self,
         request_order_status_mock,
         network_mock,
@@ -1332,7 +1414,12 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         sign_mock,
         autofill_mock,
         verify_transaction_result_mock,
+        mock_async_websocket_client,
     ):
+        # Create a mock client to be returned by the context manager
+        mock_client = AsyncMock()
+        mock_async_websocket_client.return_value.__aenter__.return_value = mock_client
+
         request_order_status_mock.return_value = OrderUpdate(
             trading_pair=self.trading_pair,
             new_state=OrderState.FILLED,
@@ -1361,14 +1448,17 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             price=Decimal("1"),
             creation_timestamp=1,
         )
+        result = await self.connector._execute_order_cancel_and_process_update(order=in_flight_order)
+        self.assertTrue(process_order_update_mock.called)
+        self.assertTrue(result)
 
-        result = self.async_run_with_timeout(
-            self.connector._execute_order_cancel_and_process_update(order=in_flight_order)
+        request_order_status_mock.return_value = OrderUpdate(
+            trading_pair=self.trading_pair,
+            new_state=OrderState.OPEN,
+            update_timestamp=1,
         )
-        self.assertTrue(network_mock.called)
-        self.assertTrue(submit_mock.called)
-        self.assertTrue(autofill_mock.called)
-        self.assertTrue(sign_mock.called)
+
+        result = await self.connector._execute_order_cancel_and_process_update(order=in_flight_order)
         self.assertTrue(process_order_update_mock.called)
         self.assertTrue(result)
 
@@ -1394,7 +1484,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertEqual(result[0].min_base_amount_increment, expected_result[0].min_base_amount_increment)
         self.assertEqual(result[0].min_notional_size, expected_result[0].min_notional_size)
 
-    def test_format_trading_pair_fee_rules(self):
+    async def test_format_trading_pair_fee_rules(self):
         trading_rules_info = {"XRP-USD": {"base_transfer_rate": 0.01, "quote_transfer_rate": 0.01}}
 
         result = self.connector._format_trading_pair_fee_rules(trading_rules_info)
@@ -1416,7 +1506,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.exchange.xrpl.xrpl_auth.XRPLAuth.get_account")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._update_balances")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
-    def test_user_stream_event_listener(
+    async def test_user_stream_event_listener(
         self,
         process_order_update_mock,
         update_balances_mock,
@@ -1446,7 +1536,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         get_order_by_sequence.return_value = in_flight_order
         get_account_mock.return_value = "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK"  # noqa: mock
 
-        self.async_run_with_timeout(self.connector._user_stream_event_listener())
+        await self.connector._user_stream_event_listener()
         self.assertTrue(update_balances_mock.called)
         self.assertTrue(get_account_mock.called)
         self.assertTrue(get_order_by_sequence.called)
@@ -1460,7 +1550,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.exchange.xrpl.xrpl_auth.XRPLAuth.get_account")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._update_balances")
     @patch("hummingbot.connector.client_order_tracker.ClientOrderTracker.process_order_update")
-    def test_user_stream_event_listener_partially_filled(
+    async def test_user_stream_event_listener_partially_filled(
         self,
         process_order_update_mock,
         update_balances_mock,
@@ -1490,7 +1580,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         get_order_by_sequence.return_value = in_flight_order
         get_account_mock.return_value = "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK"  # noqa: mock
 
-        self.async_run_with_timeout(self.connector._user_stream_event_listener())
+        await self.connector._user_stream_event_listener()
         self.assertTrue(update_balances_mock.called)
         self.assertTrue(get_account_mock.called)
         self.assertTrue(get_order_by_sequence.called)
@@ -1501,7 +1591,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_auth.XRPLAuth.get_account")
-    def test_update_balances(self, get_account_mock, network_mock):
+    async def test_update_balances(self, get_account_mock, network_mock):
         get_account_mock.return_value = "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK"  # noqa: mock
 
         def side_effect_function(arg: Request):
@@ -1509,37 +1599,36 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
                 return self._client_response_account_info()
             elif arg.method == RequestMethod.ACCOUNT_OBJECTS:
                 return self._client_response_account_objects()
+            elif arg.method == RequestMethod.ACCOUNT_LINES:
+                return self._client_response_account_lines()
             else:
                 raise ValueError("Invalid method")
 
-        self.connector._xrpl_client.request.side_effect = side_effect_function
+        self.connector._xrpl_query_client.request.side_effect = side_effect_function
 
-        self.async_run_with_timeout(self.connector._update_balances())
+        await self.connector._update_balances()
 
-        self.assertTrue(network_mock.called)
         self.assertTrue(get_account_mock.called)
 
         self.assertEqual(self.connector._account_balances["XRP"], Decimal("57.030864"))
         self.assertEqual(self.connector._account_balances["USD"], Decimal("0.011094399237562"))
-        self.assertEqual(self.connector._account_balances["SOLO"], Decimal("47.21480375660969"))
+        self.assertEqual(self.connector._account_balances["SOLO"], Decimal("35.95165691730148"))
 
         self.assertEqual(self.connector._account_available_balances["XRP"], Decimal("32.030868"))
         self.assertEqual(self.connector._account_available_balances["USD"], Decimal("0.011094399237562"))
-        self.assertEqual(self.connector._account_available_balances["SOLO"], Decimal("42.601122687963971"))
+        self.assertEqual(self.connector._account_available_balances["SOLO"], Decimal("31.337975848655761"))
 
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_make_trading_rules_request(self, network_mock):
+    async def test_make_trading_rules_request(self):
         def side_effect_function(arg: Request):
             if arg.method == RequestMethod.ACCOUNT_INFO:
                 return self._client_response_account_info_issuer()
             else:
                 raise ValueError("Invalid method")
 
-        self.connector._xrpl_client.request.side_effect = side_effect_function
+        self.connector._xrpl_query_client.request.side_effect = side_effect_function
 
-        result = self.async_run_with_timeout(self.connector._make_trading_rules_request())
+        result = await self.connector._make_trading_rules_request()
 
-        self.assertTrue(network_mock.called)
         self.assertEqual(
             result["SOLO-XRP"]["base_currency"].currency, "534F4C4F00000000000000000000000000000000"
         )  # noqa: mock
@@ -1550,14 +1639,13 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertEqual(result["SOLO-XRP"]["quote_transfer_rate"], 0)
         self.assertEqual(result["SOLO-XRP"]["minimum_order_size"], 1e-06)
 
-        self.async_run_with_timeout(self.connector._update_trading_rules())
+        await self.connector._update_trading_rules()
         trading_rule = self.connector.trading_rules["SOLO-XRP"]
         self.assertEqual(
             trading_rule.min_order_size,
             Decimal("9.99999999999999954748111825886258685613938723690807819366455078125E-7"),  # noqa: mock
         )
 
-        self.assertTrue(network_mock.called)
         self.assertEqual(
             result["SOLO-USD"]["base_currency"].currency, "534F4C4F00000000000000000000000000000000"  # noqa: mock
         )
@@ -1565,32 +1653,27 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
 
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.wait_for_final_transaction_outcome")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_verify_transaction_success(self, network_check_mock, wait_for_outcome_mock):
+    async def test_verify_transaction_success(self, network_check_mock, wait_for_outcome_mock):
         wait_for_outcome_mock.return_value = Response(status=ResponseStatus.SUCCESS, result={})
         transaction_mock = MagicMock()
         transaction_mock.get_hash.return_value = "hash"
         transaction_mock.last_ledger_sequence = 12345
 
-        result, response = self.async_run_with_timeout(
-            self.connector._verify_transaction_result({"transaction": transaction_mock, "prelim_result": "tesSUCCESS"})
-        )
+        result, response = await self.connector._verify_transaction_result({"transaction": transaction_mock, "prelim_result": "tesSUCCESS"})
         self.assertTrue(result)
         self.assertIsNotNone(response)
 
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.wait_for_final_transaction_outcome")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_verify_transaction_exception(self, network_check_mock, wait_for_outcome_mock):
+    async def test_verify_transaction_exception(self, network_check_mock, wait_for_outcome_mock):
         wait_for_outcome_mock.side_effect = Exception("Test exception")
         transaction_mock = MagicMock()
         transaction_mock.get_hash.return_value = "hash"
         transaction_mock.last_ledger_sequence = 12345
 
         with self.assertLogs(level="ERROR") as log:
-            result, response = self.async_run_with_timeout(
-                self.connector._verify_transaction_result(
-                    {"transaction": transaction_mock, "prelim_result": "tesSUCCESS"}
-                )
-            )
+            result, response = await self.connector._verify_transaction_result(
+                {"transaction": transaction_mock, "prelim_result": "tesSUCCESS"})
 
         log_output = log.output[0]
         self.assertEqual(
@@ -1598,15 +1681,9 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             "ERROR:hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange:Submitted transaction failed: Test exception",
         )
 
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.wait_for_final_transaction_outcome")
-    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_verify_transaction_exception_none_transaction(self, network_check_mock, wait_for_outcome_mock):
-        wait_for_outcome_mock.side_effect = Exception("Test exception")
-
+    async def test_verify_transaction_exception_none_transaction(self):
         with self.assertLogs(level="ERROR") as log:
-            result, response = self.async_run_with_timeout(
-                self.connector._verify_transaction_result({"transaction": None, "prelim_result": "tesSUCCESS"})
-            )
+            await self.connector._verify_transaction_result({"transaction": None, "prelim_result": "tesSUCCESS"})
 
         log_output = log.output[0]
         self.assertEqual(
@@ -1614,18 +1691,42 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             "ERROR:hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange:Failed to verify transaction result, transaction is None",
         )
 
+        self.connector.wait_for_final_transaction_outcome = AsyncMock()
+        self.connector.wait_for_final_transaction_outcome.side_effect = TimeoutError
+        with self.assertLogs(level="ERROR") as log:
+            await self.connector._verify_transaction_result(
+                {
+                    "transaction": Transaction(account="r1234", transaction_type=TransactionType.ACCOUNT_SET),  # noqa: mock
+                    "prelim_result": "tesSUCCESS"
+                })
+
+        log_output = log.output[0]
+        self.assertEqual(log_output,
+                         "ERROR:hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange:Max retries reached. Verify transaction failed due to timeout.",)
+
+        with self.assertLogs(level="ERROR") as log:
+            await self.connector._verify_transaction_result(
+                {
+                    "transaction": Transaction(account="r1234", transaction_type=TransactionType.ACCOUNT_SET),  # noqa: mock
+                    "prelim_result": "tesSUCCESS"},
+                try_count=CONSTANTS.VERIFY_TRANSACTION_MAX_RETRY)
+
+        log_output = log.output[0]
+        self.assertEqual(
+            log_output,
+            "ERROR:hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange:Max retries reached. Verify transaction failed due to timeout.",
+        )
+
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.wait_for_final_transaction_outcome")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
-    def test_verify_transaction_exception_none_prelim(self, network_check_mock, wait_for_outcome_mock):
+    async def test_verify_transaction_exception_none_prelim(self, network_check_mock, wait_for_outcome_mock):
         wait_for_outcome_mock.side_effect = Exception("Test exception")
         transaction_mock = MagicMock()
         transaction_mock.get_hash.return_value = "hash"
         transaction_mock.last_ledger_sequence = 12345
 
         with self.assertLogs(level="ERROR") as log:
-            result, response = self.async_run_with_timeout(
-                self.connector._verify_transaction_result({"transaction": transaction_mock, "prelim_result": None})
-            )
+            result, response = await self.connector._verify_transaction_result({"transaction": transaction_mock, "prelim_result": None})
 
         log_output = log.output[0]
         self.assertEqual(
@@ -1633,7 +1734,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             "ERROR:hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange:Failed to verify transaction result, prelim_result is None",
         )
 
-    def test_get_order_by_sequence_order_found(self):
+    async def test_get_order_by_sequence_order_found(self):
         # Setup
         sequence = "84437895"
         order = InFlightOrder(
@@ -1657,7 +1758,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.client_order_id, "hbot")
 
-    def test_get_order_by_sequence_order_not_found(self):
+    async def test_get_order_by_sequence_order_not_found(self):
         # Setup
         sequence = "100"
 
@@ -1667,7 +1768,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         # Assert
         self.assertIsNone(result)
 
-    def test_get_order_by_sequence_order_without_exchange_id(self):
+    async def test_get_order_by_sequence_order_without_exchange_id(self):
         # Setup
         order = InFlightOrder(
             client_order_id="test_order",
@@ -1692,7 +1793,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
     @patch("hummingbot.connector.exchange.xrpl.xrpl_auth.XRPLAuth.get_account")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._fetch_account_transactions")
-    def test_request_order_status(self, fetch_account_transactions_mock, network_check_mock, get_account_mock):
+    async def test_request_order_status(self, fetch_account_transactions_mock, network_check_mock, get_account_mock):
         transactions = [
             {
                 "meta": {
@@ -2119,7 +2220,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=1719868942.0,
         )
 
-        order_update = self.async_run_with_timeout(self.connector._request_order_status(in_flight_order))
+        order_update = await self.connector._request_order_status(in_flight_order)
 
         self.assertEqual(
             order_update.client_order_id,
@@ -2139,12 +2240,12 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=1719868942.0,
         )
 
-        order_update = self.async_run_with_timeout(self.connector._request_order_status(in_flight_order))
+        order_update = await self.connector._request_order_status(in_flight_order)
         self.assertEqual(order_update.new_state, OrderState.FILLED)
 
         fetch_account_transactions_mock.return_value = []
 
-        order_update = self.async_run_with_timeout(self.connector._request_order_status(in_flight_order))
+        order_update = await self.connector._request_order_status(in_flight_order)
         self.assertEqual(order_update.new_state, OrderState.PENDING_CREATE)
 
         in_flight_order = InFlightOrder(
@@ -2158,7 +2259,7 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=1719868942.0,
         )
 
-        order_update = self.async_run_with_timeout(self.connector._request_order_status(in_flight_order))
+        order_update = await self.connector._request_order_status(in_flight_order)
         self.assertEqual(order_update.new_state, OrderState.FAILED)
 
         in_flight_order = InFlightOrder(
@@ -2172,13 +2273,27 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=time.time(),
         )
 
-        order_update = self.async_run_with_timeout(self.connector._request_order_status(in_flight_order))
+        order_update = await self.connector._request_order_status(in_flight_order)
+        self.assertEqual(order_update.new_state, OrderState.PENDING_CREATE)
+
+        in_flight_order = InFlightOrder(
+            client_order_id="hbot-1719868942218900-SSOXP61c36315c76a2aa2eb3bb461924f46f4336f2",  # noqa: mock
+            trading_pair="SOLO-XRP",
+            order_type=OrderType.LIMIT,
+            trade_type=TradeType.SELL,
+            price=Decimal("0.217090"),
+            amount=Decimal("2.303184724670496"),
+            creation_timestamp=time.time(),
+        )
+
+        in_flight_order.current_state = OrderState.PENDING_CREATE
+        order_update = await self.connector._request_order_status(in_flight_order)
         self.assertEqual(order_update.new_state, OrderState.PENDING_CREATE)
 
     @patch("hummingbot.connector.exchange.xrpl.xrpl_auth.XRPLAuth.get_account")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._make_network_check_request")
     @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange._fetch_account_transactions")
-    def test_get_trade_fills(self, fetch_account_transactions_mock, network_check_mock, get_account_mock):
+    async def test_get_trade_fills(self, fetch_account_transactions_mock, network_check_mock, get_account_mock):
         transactions = [
             {
                 "meta": {
@@ -2431,11 +2546,11 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         fetch_account_transactions_mock.return_value = transactions
         get_account_mock.return_value = "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK"  # noqa: mock
 
-        trade_fills = self.async_run_with_timeout(self.connector._all_trade_updates_for_order(in_flight_order))
+        trade_fills = await self.connector._all_trade_updates_for_order(in_flight_order)
 
         self.assertEqual(len(trade_fills), 1)
         self.assertEqual(
-            trade_fills[0].trade_id, "1B74D0FE8F6CBAC807D3C7137D4C265F49CBC30B3EC2FEB8F94CD0EB39162F41" # noqa: mock
+            trade_fills[0].trade_id, "1B74D0FE8F6CBAC807D3C7137D4C265F49CBC30B3EC2FEB8F94CD0EB39162F41"  # noqa: mock
         )  # noqa: mock
         self.assertEqual(
             trade_fills[0].client_order_id,
@@ -2448,7 +2563,8 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertEqual(trade_fills[0].fill_base_amount, Decimal("5.619196007179491"))
         self.assertEqual(trade_fills[0].fill_quote_amount, Decimal("1.249995"))
         self.assertEqual(
-            trade_fills[0].fee.percent, Decimal("0.01000000000000000020816681711721685132943093776702880859375") # noqa: mock
+            trade_fills[0].fee.percent,
+            Decimal("0.01000000000000000020816681711721685132943093776702880859375"),  # noqa: mock
         )
         self.assertEqual(trade_fills[0].fee.percent_token, "XRP")
         self.assertEqual(trade_fills[0].fee.flat_fees, [])
@@ -2705,13 +2821,15 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
             creation_timestamp=1718906078.0,
         )
 
-        trade_fills = self.async_run_with_timeout(self.connector._all_trade_updates_for_order(in_flight_order))
+        trade_fills = await self.connector._all_trade_updates_for_order(in_flight_order)
 
         self.assertEqual(len(trade_fills), 1)
-        self.assertEqual(trade_fills[0].trade_id, "1B74D0FE8F6CBAC807D3C7137D4C265F49CBC30B3EC2FEB8F94CD0EB39162F41") # noqa: mock
+        self.assertEqual(
+            trade_fills[0].trade_id, "1B74D0FE8F6CBAC807D3C7137D4C265F49CBC30B3EC2FEB8F94CD0EB39162F41"  # noqa: mock
+        )
         self.assertEqual(
             trade_fills[0].client_order_id,
-            "hbot-1718906078435341-BSOXP61b56023518294a8eb046fb3701345edf3cf5", # noqa: mock
+            "hbot-1718906078435341-BSOXP61b56023518294a8eb046fb3701345edf3cf5",  # noqa: mock
         )
         self.assertEqual(trade_fills[0].exchange_order_id, "84436571-88824981")
         self.assertEqual(trade_fills[0].trading_pair, "SOLO-XRP")
@@ -2719,3 +2837,45 @@ class XRPLAPIOrderBookDataSourceUnitTests(unittest.TestCase):
         self.assertEqual(trade_fills[0].fill_price, Decimal("4.417734611892777801348826549"))
         self.assertEqual(trade_fills[0].fill_base_amount, Decimal("306.599028007179491"))
         self.assertEqual(trade_fills[0].fill_quote_amount, Decimal("1354.473138"))
+
+    @patch("hummingbot.connector.exchange.xrpl.xrpl_auth.XRPLAuth.get_account")
+    @patch("hummingbot.connector.exchange.xrpl.xrpl_exchange.XrplExchange.request_with_retry")
+    async def test_fetch_account_transactions(self, request_with_retry_mock, get_account_mock):
+
+        get_account_mock.return_value = "r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK"  # noqa: mock
+        request_with_retry_mock.return_value = Response(
+            status=ResponseStatus.SUCCESS,
+            result={"transactions": ["something"]},
+            id="account_info_644216",
+            type=ResponseType.RESPONSE,
+        )
+
+        txs = await self.connector._fetch_account_transactions(ledger_index=88824981)
+        self.assertEqual(len(txs), 1)
+
+    async def test_tx_submit(self):
+        mock_client = AsyncMock()
+        mock_client._request_impl.return_value = Response(
+            status=ResponseStatus.SUCCESS,
+            result={"transactions": ["something"]},
+            id="something_1234",
+            type=ResponseType.RESPONSE,
+        )
+
+        some_tx = OfferCancel(account="r2XdzWFVoHGfGVmXugtKhxMu3bqhsYiWK", offer_sequence=88824981)
+
+        resp = await self.connector.tx_submit(some_tx, mock_client)
+        self.assertEqual(resp.status, ResponseStatus.SUCCESS)
+
+        # check if there is exception if response status is not success
+        mock_client._request_impl.return_value = Response(
+            status=ResponseStatus.ERROR,
+            result={"error": "something"},
+            id="something_1234",
+            type=ResponseType.RESPONSE,
+        )
+
+        with self.assertRaises(XRPLRequestFailureException) as context:
+            await self.connector.tx_submit(some_tx, mock_client)
+
+        self.assertTrue("something" in str(context.exception))

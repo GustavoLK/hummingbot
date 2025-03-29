@@ -825,7 +825,7 @@ class AscendExExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
         )
         self.validate_order_creation_request(order=order_to_validate_request, request_call=order_request)
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
         failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
         self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
         self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -1112,6 +1112,6 @@ class AscendExExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorTest
             self.is_logged(
                 "INFO",
                 f"Created {OrderType.MARKET.name} {TradeType.BUY.name} order {order_id} for "
-                f"{Decimal('100.000000')} {self.trading_pair}."
+                f"{Decimal('100.000000')} {self.trading_pair} at {Decimal('10000')}."
             )
         )

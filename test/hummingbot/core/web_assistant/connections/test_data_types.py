@@ -6,9 +6,7 @@ from typing import Awaitable
 import aiohttp
 from aioresponses import aioresponses
 
-from hummingbot.core.web_assistant.connections.data_types import (
-    RESTMethod, RESTResponse, EndpointRESTRequest
-)
+from hummingbot.core.web_assistant.connections.data_types import EndpointRESTRequest, RESTMethod, RESTResponse
 
 
 class DataTypesTest(unittest.TestCase):
@@ -34,7 +32,7 @@ class DataTypesTest(unittest.TestCase):
         body_str = json.dumps(body)
         headers = {"content-type": "application/json"}
         mocked_api.get(url=url, body=body_str, headers=headers)
-        aiohttp_response = self.async_run_with_timeout(aiohttp.ClientSession().get(url))
+        aiohttp_response = self.async_run_with_timeout(aiohttp.ClientSession(loop=self.ev_loop).get(url))
 
         response = RESTResponse(aiohttp_response)
 
@@ -52,13 +50,35 @@ class DataTypesTest(unittest.TestCase):
         self.assertEqual(body_str, text)
 
     @aioresponses()
+    def test_rest_response_with_test_properties(self, mocked_api):
+        url = "https://some.url"
+        data = '{"one": 1}'
+        data_str = data.encode("utf-8")
+        body = f'{data_str}'
+        body_str = json.dumps(body)
+        headers = {"content-type": "text/html"}
+        mocked_api.get(url=url, body=body_str, headers=headers)
+        aiohttp_response = self.async_run_with_timeout(aiohttp.ClientSession(loop=self.ev_loop).get(url))
+
+        response = RESTResponse(aiohttp_response)
+
+        self.assertEqual(url, response.url)
+        self.assertEqual(RESTMethod.GET, response.method)
+        self.assertEqual(200, response.status)
+        self.assertEqual(headers, response.headers)
+
+        json_ = self.async_run_with_timeout(response.json())
+
+        self.assertEqual(body, json_)
+
+    @aioresponses()
     def test_rest_response_repr(self, mocked_api):
         url = "https://some.url"
         body = {"one": 1}
         body_str = json.dumps(body)
         headers = {"content-type": "application/json"}
         mocked_api.get(url=url, body=body_str, headers=headers)
-        aiohttp_response = self.async_run_with_timeout(aiohttp.ClientSession().get(url))
+        aiohttp_response = self.async_run_with_timeout(aiohttp.ClientSession(loop=self.ev_loop).get(url))
 
         response = RESTResponse(aiohttp_response)
 

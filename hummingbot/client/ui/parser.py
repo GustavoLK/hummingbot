@@ -92,7 +92,7 @@ def load_parser(hummingbot: "HummingbotApplication", command_tabs) -> [ThrowingA
                                 dest="precision", help="Level of precions for values displayed")
     history_parser.set_defaults(func=hummingbot.history)
 
-    gateway_parser = subparsers.add_parser("gateway", help="Helper comands for Gateway server.")
+    gateway_parser = subparsers.add_parser("gateway", help="Helper commands for Gateway server.")
     gateway_subparsers = gateway_parser.add_subparsers()
 
     gateway_balance_parser = gateway_subparsers.add_parser("balance", help="Display your asset balances and allowances across all connected gateway connectors")
@@ -141,11 +141,6 @@ def load_parser(hummingbot: "HummingbotApplication", command_tabs) -> [ThrowingA
     ticker_parser.add_argument("--exchange", type=str, dest="exchange", help="The exchange of the market")
     ticker_parser.add_argument("--market", type=str, dest="market", help="The market (trading pair) of the order book")
     ticker_parser.set_defaults(func=hummingbot.ticker)
-
-    pmm_script_parser = subparsers.add_parser("pmm_script", help="Send command to running PMM script instance")
-    pmm_script_parser.add_argument("cmd", nargs="?", default=None, help="Command")
-    pmm_script_parser.add_argument("args", nargs="*", default=None, help="Arguments")
-    pmm_script_parser.set_defaults(func=hummingbot.pmm_script_command)
 
     previous_strategy_parser = subparsers.add_parser("previous", help="Imports the last strategy used")
     previous_strategy_parser.add_argument("option", nargs="?", choices=["Yes,No"], default=None)

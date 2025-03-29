@@ -190,6 +190,7 @@ class InjectiveGranteeDataSourceTests(TestCase):
             service_provider_fee=Decimal("0.4"),
             min_price_tick_size=Decimal("0.0001"),
             min_quantity_tick_size=Decimal("100"),
+            min_notional=Decimal("1000000"),
         )
 
         return native_market
@@ -225,6 +226,7 @@ class InjectiveGranteeDataSourceTests(TestCase):
             service_provider_fee=Decimal("0.4"),
             min_price_tick_size=Decimal("0.000000000000001"),
             min_quantity_tick_size=Decimal("1000000000000000"),
+            min_notional=Decimal("1000000"),
         )
 
         return native_market
@@ -262,7 +264,10 @@ class InjectiveVaultsDataSourceTests(TestCase):
         self.query_executor = ProgrammableQueryExecutor()
         self.data_source._query_executor = self.query_executor
 
-        self.data_source._composer = Composer(network=self.data_source.network_name)
+        self.data_source._composer = Composer(
+            network=self.data_source.network_name,
+            spot_markets=self._spot_markets_response(),
+        )
 
     def tearDown(self) -> None:
         self.async_run_with_timeout(self.data_source.stop())
@@ -471,6 +476,7 @@ class InjectiveVaultsDataSourceTests(TestCase):
             service_provider_fee=Decimal("0.4"),
             min_price_tick_size=Decimal("0.000000000000001"),
             min_quantity_tick_size=Decimal("1000000000000000"),
+            min_notional=Decimal("1000000"),
         )
 
         return native_market

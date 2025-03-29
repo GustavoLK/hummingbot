@@ -18,10 +18,6 @@ from hummingbot.client.config.client_config_map import (
     DBSqliteMode,
     KillSwitchDisabledMode,
     KillSwitchEnabledMode,
-    PMMScriptDisabledMode,
-    PMMScriptEnabledMode,
-    TelegramDisabledMode,
-    TelegramEnabledMode,
 )
 from hummingbot.client.config.config_crypt import BaseSecretsManager, store_password_verification
 from hummingbot.client.config.config_data_types import BaseConnectorConfigMap
@@ -133,18 +129,6 @@ def _migrate_global_config_modes(client_config_map: ClientConfigAdapter, data: D
     _migrate_global_config_field(
         client_config_map.paper_trade, data, "paper_trade_account_balance"
     )
-
-    telegram_enabled = data.pop("telegram_enabled")
-    telegram_token = data.pop("telegram_token")
-    telegram_chat_id = data.pop("telegram_chat_id")
-    if telegram_enabled:
-        client_config_map.telegram_mode = TelegramEnabledMode(
-            telegram_token=telegram_token,
-            telegram_chat_id=telegram_chat_id,
-        )
-    else:
-        client_config_map.telegram_mode = TelegramDisabledMode()
-
     db_engine = data.pop("db_engine")
     db_host = data.pop("db_host")
     db_port = data.pop("db_port")
@@ -163,16 +147,6 @@ def _migrate_global_config_modes(client_config_map: ClientConfigAdapter, data: D
             db_name=db_name,
         )
 
-    pmm_script_enabled = data.pop("pmm_script_enabled")
-    pmm_script_file_path = data.pop("pmm_script_file_path")
-    if pmm_script_enabled:
-        client_config_map.pmm_script_mode = PMMScriptEnabledMode(pmm_script_file_path=pmm_script_file_path)
-    else:
-        client_config_map.pmm_script_mode = PMMScriptDisabledMode()
-
-    _migrate_global_config_field(
-        client_config_map.gateway, data, "gateway_api_host"
-    )
     _migrate_global_config_field(
         client_config_map.gateway, data, "gateway_api_port"
     )

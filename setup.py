@@ -33,7 +33,7 @@ class BuildExt(build_ext):
 
 def main():
     cpu_count = os.cpu_count() or 8
-    version = "20240703"
+    version = "20250303"
     all_packages = find_packages(include=["hummingbot", "hummingbot.*"], )
     excluded_paths = [
         "hummingbot.connector.gateway.clob_spot.data_sources.injective",
@@ -60,12 +60,14 @@ def main():
         "cachetools",
         "certifi",
         "coincurve",
+        "coinbase-advanced-py==1.8.2",
         "cryptography",
         "cython==3.0.0",
         "cytoolz",
         "commlib-py",
         "docker",
         "diff-cover",
+        "ecdsa",
         "eip712-structs",
         "eth-abi",
         "eth-account",
@@ -74,13 +76,12 @@ def main():
         "eth-typing",
         "eth-utils",
         "flake8",
+        "grpcio",
         "hexbytes",
         "importlib-metadata",
         "injective-py",
         "mypy-extensions",
         "msgpack",
-        "nose",
-        "nose-exclude",
         "numpy==1.26.4",
         "pandas",
         "pip",
@@ -92,7 +93,6 @@ def main():
         "pyjwt",
         "pyperclip",
         "python-dateutil",
-        "python-telegram-bot==12.8",
         "pyOpenSSL",
         "requests",
         "rsa",
@@ -109,6 +109,7 @@ def main():
         "websockets",
         "yarl",
         "pandas_ta==0.3.14b",
+        "xrpl-py==4.0.0b3",
     ]
 
     cython_kwargs = {

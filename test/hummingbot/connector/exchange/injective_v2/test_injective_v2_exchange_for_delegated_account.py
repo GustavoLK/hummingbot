@@ -190,6 +190,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
             service_provider_fee=Decimal("0.4"),
             min_price_tick_size=Decimal("0.000000000000001"),
             min_quantity_tick_size=Decimal("1000000000000000"),
+            min_notional=Decimal("1000000"),
         )
 
         return ("INVALID_MARKET", response)
@@ -234,6 +235,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
             service_provider_fee=Decimal("0.4"),
             min_price_tick_size=None,
             min_quantity_tick_size=None,
+            min_notional=None,
         )
 
         return {native_market.id: native_market}
@@ -241,7 +243,8 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
     @property
     def order_creation_request_successful_mock_response(self):
         return {"txhash": "017C130E3602A48E5C9D661CAC657BF1B79262D4B71D5C25B1DA62DE2338DA0E",  # noqa: mock"
-                "rawLog": "[]"}  # noqa: mock
+                "rawLog": "[]",
+                "code": 0}  # noqa: mock
 
     @property
     def balance_request_mock_response_for_base_and_quote(self):
@@ -348,12 +351,14 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
                                * Decimal(f"1e{market.base_token.decimals - market.quote_token.decimals}"))
         min_quantity_tick_size = market.min_quantity_tick_size * Decimal(
             f"1e{-market.base_token.decimals}")
+        min_notional = market.min_notional * Decimal(f"1e{-market.quote_token.decimals}")
         trading_rule = TradingRule(
             trading_pair=self.trading_pair,
             min_order_size=min_quantity_tick_size,
             min_price_increment=min_price_tick_size,
             min_base_amount_increment=min_quantity_tick_size,
             min_quote_amount_increment=min_price_tick_size,
+            min_notional_size=min_notional,
         )
 
         return trading_rule
@@ -425,6 +430,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
             service_provider_fee=Decimal("0.4"),
             min_price_tick_size=Decimal("0.000000000000001"),
             min_quantity_tick_size=Decimal("1000000000000000"),
+            min_notional=Decimal("1000000"),
         )
 
         return {native_market.id: native_market}
@@ -459,7 +465,10 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
         exchange._data_source._spot_market_and_trading_pair_map = bidict({self.market_id: self.trading_pair})
         exchange._data_source._derivative_market_and_trading_pair_map = bidict()
 
-        exchange._data_source._composer = Composer(network=exchange._data_source.network_name)
+        exchange._data_source._composer = Composer(
+            network=exchange._data_source.network_name,
+            spot_markets=self.all_markets_mock_response,
+        )
 
         return exchange
 
@@ -1163,7 +1172,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
         self.exchange._data_source._query_executor._simulate_transaction_responses.put_nowait(
             transaction_simulation_response)
 
-        response = {"txhash": "", "rawLog": "Error"}
+        response = {"txhash": "", "rawLog": "Error", "code": 11}
         mock_queue = AsyncMock()
         mock_queue.get.side_effect = partial(
             self._callback_wrapper_with_response,
@@ -1177,7 +1186,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
 
         self.assertNotIn(order_id, self.exchange.in_flight_orders)
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
         failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
         self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
         self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -1206,7 +1215,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
         self.exchange._data_source._query_executor._simulate_transaction_responses.put_nowait(
             transaction_simulation_response)
 
-        response = {"txhash": "", "rawLog": "Error"}
+        response = {"txhash": "", "rawLog": "Error", "code": 11}
         mock_queue = AsyncMock()
         mock_queue.get.side_effect = partial(
             self._callback_wrapper_with_response,
@@ -1221,7 +1230,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
         self.assertNotIn(order_id_for_invalid_order, self.exchange.in_flight_orders)
         self.assertNotIn(order_id, self.exchange.in_flight_orders)
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
         failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
         self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
         self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -2086,8 +2095,8 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
 
         self.async_run_with_timeout(self.exchange._check_orders_creation_transactions())
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
-        self.assertEquals(0, len(self.order_failure_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.order_failure_logger.event_log))
 
         self.assertFalse(
             self.is_logged(
@@ -2097,255 +2106,6 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
                 f"client_order_id='{order.client_order_id}', exchange_order_id=None, misc_updates=None)"
             )
         )
-
-    # Momentarily disabled
-    # @patch("hummingbot.connector.exchange.injective_v2.data_sources.injective_data_source.InjectiveDataSource._time")
-    # def test_order_not_found_in_its_creating_transaction_marked_as_failed_during_order_creation_check(self, time_mock):
-    #     self.configure_all_symbols_response(mock_api=None)
-    #     self.exchange._set_current_timestamp(1640780000.0)
-    #     time_mock.return_value = 1640780000.0
-    #
-    #     self.exchange.start_tracking_order(
-    #         order_id=self.client_order_id_prefix + "1",
-    #         exchange_order_id="0x9f94598b4842ab66037eaa7c64ec10ae16dcf196e61db8522921628522c0f62e",  # noqa: mock
-    #         trading_pair=self.trading_pair,
-    #         trade_type=TradeType.BUY,
-    #         price=Decimal("10000"),
-    #         amount=Decimal("100"),
-    #         order_type=OrderType.LIMIT,
-    #     )
-    #
-    #     self.assertIn(self.client_order_id_prefix + "1", self.exchange.in_flight_orders)
-    #     order: GatewayInFlightOrder = self.exchange.in_flight_orders[self.client_order_id_prefix + "1"]
-    #     order.update_creation_transaction_hash(
-    #         creation_transaction_hash="66A360DA2FD6884B53B5C019F1A2B5BED7C7C8FC07E83A9C36AD3362EDE096AE")  # noqa: mock
-    #
-    #     transaction_response = {
-    #         "tx": {
-    #             "body": {
-    #                 "messages": [],
-    #                 "timeoutHeight": "20557725",
-    #                 "memo": "",
-    #                 "extensionOptions": [],
-    #                 "nonCriticalExtensionOptions": []
-    #             },
-    #             "authInfo": {},
-    #             "signatures": [
-    #                 "/xSRaq4l5D6DZI5syfAOI5ITongbgJnN97sxCBLXsnFqXLbc4ztEOdQJeIZUuQM+EoqMxUjUyP1S5hg8lM+00w=="
-    #             ]
-    #         },
-    #         "txResponse": {
-    #             "height": "20557627",
-    #             "txhash": "7CC335E98486A7C13133E04561A61930F9F7AD34E6A14A72BC25956F2495CE33",  # noqa: mock"
-    #             "data": "",
-    #             "rawLog": "",
-    #             "logs": [],
-    #             "gasWanted": "209850",
-    #             "gasUsed": "93963",
-    #             "tx": {},
-    #             "timestamp": "2024-01-10T13:23:29Z",
-    #             "events": [
-    #                 {
-    #                     "type": "coin_spent",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "spender",
-    #                             "value": "inj1jtcvrdguuyx6dwz6xszpvkucyplw7z94vxlu07",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "amount",
-    #                             "value": "33576000000000inj",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "coin_received",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "receiver",
-    #                             "value": "inj17xpfvakm2amg962yls6f84z3kell8c5l6s5ye9",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "amount",
-    #                             "value": "33576000000000inj",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "transfer",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "recipient",
-    #                             "value": "inj17xpfvakm2amg962yls6f84z3kell8c5l6s5ye9",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "sender",
-    #                             "value": "inj1jtcvrdguuyx6dwz6xszpvkucyplw7z94vxlu07",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "amount",
-    #                             "value": "33576000000000inj",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "message",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "sender",
-    #                             "value": "inj1jtcvrdguuyx6dwz6xszpvkucyplw7z94vxlu07",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "tx",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "fee",
-    #                             "value": "33576000000000inj",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "fee_payer",
-    #                             "value": "inj1jtcvrdguuyx6dwz6xszpvkucyplw7z94vxlu07",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "tx",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "acc_seq",
-    #                             "value": "inj1jtcvrdguuyx6dwz6xszpvkucyplw7z94vxlu07/989",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "tx",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "signature",
-    #                             "value": "/xSRaq4l5D6DZI5syfAOI5ITongbgJnN97sxCBLXsnFqXLbc4ztEOdQJeIZUuQM+EoqMxUjUyP1S5hg8lM+00w==",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "message",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "action",
-    #                             "value": "/injective.exchange.v1beta1.MsgBatchUpdateOrders",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "sender",
-    #                             "value": "inj1jtcvrdguuyx6dwz6xszpvkucyplw7z94vxlu07",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "module",
-    #                             "value": "exchange",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "injective.exchange.v1beta1.EventNewSpotOrders",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "buy_orders",
-    #                             "value": json.dumps(
-    #                                 [
-    #                                     {
-    #                                         "order_info": {
-    #                                             "subaccount_id": "0xf5099d25e6e7e8c6584b67826127b04c9de3e554000000000000000000000000",  # noqa: mock"
-    #                                             "fee_recipient": "inj175ye6f0xul5vvkztv7pxzfasfjw78e25mq40xk",
-    #                                             "price": "0.000000000475004000",
-    #                                             "quantity": "10000000000000000000.000000000000000000",
-    #                                             "cid": "HBOTBIJUT60e848f5d7f540cb90799499732"
-    #                                         },
-    #                                         "order_type": "BUY_PO",
-    #                                         "fillable": "10000000000000000000.000000000000000000",
-    #                                         "trigger_price": "0.000000000000000000",
-    #                                         "order_hash": "DkA7cww2uUIBvKG9hGOM281kpsbjWZKzkMkWbFALBkY="
-    #                                     }
-    #                                 ]
-    #                             ),
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "market_id",
-    #                             "value": "\"0x0611780ba69656949525013d947713300f56c37b6175e02f26bffa495c3208fe\"",  # noqa: mock"
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "sell_orders",
-    #                             "value": "[]",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "authz_msg_index",
-    #                             "value": "0",
-    #                             "index": True
-    #                         }
-    #                     ]
-    #                 },
-    #                 {
-    #                     "type": "injective.exchange.v1beta1.EventOrderFail",
-    #                     "attributes": [
-    #                         {
-    #                             "key": "account",
-    #                             "value": "\"kvDBtRzhDaa4WjQEFluYIH7vCLU=\"",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "flags",
-    #                             "value": "[95]",
-    #                             "index": True
-    #                         },
-    #                         {
-    #                             "key": "hashes",
-    #                             "value": "[\"X7hrvEMpmG7s/sw9q5l1r6dPyHgx5PkH0LPGOs5rTV0=\"]",
-    #                             "index": True,
-    #                         }
-    #                     ]
-    #                 }
-    #             ],
-    #             "codespace": "",
-    #             "code": 0,
-    #             "info": ""
-    #         }
-    #     }
-    #
-    #     self.exchange._data_source._query_executor._get_tx_responses.put_nowait(transaction_response)
-    #
-    #     self.async_run_with_timeout(self.exchange._check_orders_creation_transactions())
-    #
-    #     self.assertEquals(0, len(self.buy_order_created_logger.event_log))
-    #     failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
-    #     self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
-    #     self.assertEqual(OrderType.LIMIT, failure_event.order_type)
-    #     self.assertEqual(order.client_order_id, failure_event.order_id)
-    #
-    #     self.assertTrue(
-    #         self.is_logged(
-    #             "INFO",
-    #             f"Order {order.client_order_id} has failed. Order Update: OrderUpdate(trading_pair='{self.trading_pair}', "
-    #             f"update_timestamp={self.exchange.current_timestamp}, new_state={repr(OrderState.FAILED)}, "
-    #             f"client_order_id='{order.client_order_id}', exchange_order_id=None, misc_updates=None)"
-    #         )
-    #     )
 
     @patch("hummingbot.connector.exchange.injective_v2.data_sources.injective_data_source.InjectiveDataSource._time")
     def test_order_in_failed_transaction_marked_as_failed_during_order_creation_check(self, time_mock):
@@ -2403,7 +2163,7 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
 
         self.async_run_with_timeout(self.exchange._check_orders_creation_transactions())
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
         failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
         self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
         self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -2469,11 +2229,13 @@ class InjectiveV2ExchangeTests(AbstractExchangeConnectorTests.ExchangeConnectorT
 
     def _order_cancelation_request_successful_mock_response(self, order: InFlightOrder) -> Dict[str, Any]:
         return {"txhash": "79DBF373DE9C534EE2DC9D009F32B850DA8D0C73833FAA0FD52C6AE8989EC659",  # noqa: mock"
-                "rawLog": "[]"}  # noqa: mock
+                "rawLog": "[]",
+                "code": 0}  # noqa: mock
 
     def _order_cancelation_request_erroneous_mock_response(self, order: InFlightOrder) -> Dict[str, Any]:
         return {"txhash": "79DBF373DE9C534EE2DC9D009F32B850DA8D0C73833FAA0FD52C6AE8989EC659",  # noqa: mock"
-                "rawLog": "Error"}  # noqa: mock
+                "rawLog": "Error",
+                "code": 11}  # noqa: mock
 
     def _order_status_request_open_mock_response(self, order: GatewayInFlightOrder) -> Dict[str, Any]:
         return {
