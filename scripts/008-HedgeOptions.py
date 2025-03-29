@@ -18,7 +18,6 @@ from hummingbot.strategy.strategy_py_base import BuyOrderCompletedEvent, SellOrd
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction
 
-
 if os.environ.get('PYTHONDEV') == '1':
     try:
         import debugpy
@@ -444,6 +443,8 @@ class GLKHedgeOptions(StrategyV2Base):
             self._close_trade_in_df(price)
             last_trade = self.df.iloc[-1]
             self.config_readed['BUY']['entry'] = last_trade['Exit price'] * (1 + Decimal(self.config_readed['BUY']['ts_activation']))
+            if self.config_readed['BUY']['entry'] < self.config_readed['BUY']['entry_orig']:
+                self.config_readed['BUY']['entry'] = self.config_readed['BUY']['entry_orig']
             # self.config_readed['BUY']['entry'] = max(last_trade['Exit price'] * (1 - Decimal(self.config_readed['BUY']['ts_activation'])), self.config_readed['BUY']['entry_orig'])
             # Viejo metodo documentado en Inkscape
             # self.config_readed['BUY']['sl'] = last_trade['Exit price']
@@ -457,6 +458,8 @@ class GLKHedgeOptions(StrategyV2Base):
             self._close_trade_in_df(price)
             last_trade = self.df.iloc[-1]            
             self.config_readed['SELL']['entry'] = last_trade['Exit price'] * (1 - Decimal(self.config_readed['SELL']['ts_activation']))
+            if self.config_readed['SELL']['entry'] > self.config_readed['SELL']['entry_orig']:
+                self.config_readed['SELL']['entry'] = self.config_readed['SELL']['entry_orig']
             # Viejo metodo documentado en Inkscape
             # self.config_readed['SELL']['sl'] = last_trade['Exit price']
             self.config_readed['SELL']['sl'] = round(self.config_readed['SELL']['entry'] * (1 + Decimal(self.config_readed['SELL']['sl_pct'])), 2)
