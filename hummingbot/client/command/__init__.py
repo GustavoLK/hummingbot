@@ -1,4 +1,5 @@
 from .balance_command import BalanceCommand
+from .balanceglk_command import BalanceglkCommand
 from .config_command import ConfigCommand
 from .connect_command import ConnectCommand
 from .create_command import CreateCommand
@@ -10,7 +11,6 @@ from .history_command import HistoryCommand
 from .import_command import ImportCommand
 from .mqtt_command import MQTTCommand
 from .order_book_command import OrderBookCommand
-from .pmm_script_command import PMMScriptCommand
 from .previous_strategy_command import PreviousCommand
 from .rate_command import RateCommand
 from .silly_commands import SillyCommands
@@ -18,7 +18,6 @@ from .start_command import StartCommand
 from .status_command import StatusCommand
 from .stop_command import StopCommand
 from .ticker_command import TickerCommand
-from .balanceglk_command import BalanceglkCommand
 
 __all__ = [
     BalanceCommand,
@@ -33,7 +32,6 @@ __all__ = [
     HistoryCommand,
     ImportCommand,
     OrderBookCommand,
-    PMMScriptCommand,
     PreviousCommand,
     RateCommand,
     SillyCommands,

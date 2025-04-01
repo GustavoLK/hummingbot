@@ -8,6 +8,7 @@ from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.client.ui.interface_utils import format_df_for_printout
 from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
 from hummingbot.strategy_v2.controllers.controller_base import ControllerBase, ControllerConfigBase
+from hummingbot.strategy_v2.executors.data_types import ConnectorPair
 from hummingbot.strategy_v2.executors.position_executor.data_types import (
     PositionExecutorConfig,
     TrailingStop,
@@ -31,19 +32,11 @@ class DirectionalTradingControllerConfigBase(ControllerConfigBase):
         client_data=ClientFieldData(
             prompt_on_new=True,
             prompt=lambda mi: "Enter the trading pair to trade on (e.g., WLD-USDT):"))
-
-    total_amount_quote: Decimal = Field(
-        default=100.0,
-        client_data=ClientFieldData(
-            prompt_on_new=True,
-            prompt=lambda mi: "Enter the amount of quote asset to use per executor (e.g., 100):"))
-
     max_executors_per_side: int = Field(
         default=2,
         client_data=ClientFieldData(
             prompt_on_new=True,
             prompt=lambda mi: "Enter the maximum number of executors per side (e.g., 2):"))
-
     cooldown_time: int = Field(
         default=60 * 5, gt=0,
         client_data=ClientFieldData(
@@ -161,6 +154,8 @@ class DirectionalTradingControllerBase(ControllerBase):
     def __init__(self, config: DirectionalTradingControllerConfigBase, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
         self.config = config
+        self.market_data_provider.initialize_rate_sources([ConnectorPair(
+            connector_name=config.connector_name, trading_pair=config.trading_pair)])
 
     def determine_executor_actions(self) -> List[ExecutorAction]:
         """

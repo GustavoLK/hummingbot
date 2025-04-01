@@ -691,7 +691,7 @@ class AbstractExchangeConnectorTests:
                 self.is_logged(
                     "INFO",
                     f"Created {OrderType.LIMIT.name} {TradeType.BUY.name} order {order_id} for "
-                    f"{Decimal('100.000000')} {self.trading_pair}."
+                    f"{Decimal('100.000000')} {self.trading_pair} at {Decimal('10000.0000')}."
                 )
             )
 
@@ -731,7 +731,7 @@ class AbstractExchangeConnectorTests:
                 self.is_logged(
                     "INFO",
                     f"Created {OrderType.LIMIT.name} {TradeType.SELL.name} order {order_id} for "
-                    f"{Decimal('100.000000')} {self.trading_pair}."
+                    f"{Decimal('100.000000')} {self.trading_pair} at {Decimal('10000.0000')}."
                 )
             )
 
@@ -764,7 +764,7 @@ class AbstractExchangeConnectorTests:
                 order=order_to_validate_request,
                 request_call=order_request)
 
-            self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+            self.assertEqual(0, len(self.buy_order_created_logger.event_log))
             failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
             self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
             self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -800,7 +800,7 @@ class AbstractExchangeConnectorTests:
             self.assertNotIn(order_id_for_invalid_order, self.exchange.in_flight_orders)
             self.assertNotIn(order_id, self.exchange.in_flight_orders)
 
-            self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+            self.assertEqual(0, len(self.buy_order_created_logger.event_log))
             failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
             self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
             self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -906,7 +906,7 @@ class AbstractExchangeConnectorTests:
                     order=order,
                     request_call=cancel_request)
 
-            self.assertEquals(0, len(self.order_cancelled_logger.event_log))
+            self.assertEqual(0, len(self.order_cancelled_logger.event_log))
             self.assertTrue(
                 any(
                     log.msg.startswith(f"Failed to cancel order {order.client_order_id}")
@@ -1048,19 +1048,21 @@ class AbstractExchangeConnectorTests:
             )
             order: InFlightOrder = self.exchange.in_flight_orders[self.client_order_id_prefix + "1"]
 
+            if self.is_order_fill_http_update_included_in_status_update:
+                trade_url = self.configure_full_fill_trade_response(
+                    order=order,
+                    mock_api=mock_api,
+                    callback=lambda *args, **kwargs: request_sent_event.set())
+            else:
+                # If the fill events will not be requested with the order status, we need to manually set the event
+                # to allow the ClientOrderTracker to process the last status update
+                order.completely_filled_event.set()
+
             urls = self.configure_completely_filled_order_status_response(
                 order=order,
                 mock_api=mock_api,
                 callback=lambda *args, **kwargs: request_sent_event.set())
 
-            if self.is_order_fill_http_update_included_in_status_update:
-                trade_url = self.configure_full_fill_trade_response(
-                    order=order,
-                    mock_api=mock_api)
-            else:
-                # If the fill events will not be requested with the order status, we need to manually set the event
-                # to allow the ClientOrderTracker to process the last status update
-                order.completely_filled_event.set()
             self.async_run_with_timeout(self.exchange._update_order_status())
             # Execute one more synchronization to ensure the async task that processes the update is finished
             self.async_run_with_timeout(request_sent_event.wait())
@@ -1233,14 +1235,14 @@ class AbstractExchangeConnectorTests:
             )
             order: InFlightOrder = self.exchange.in_flight_orders[self.client_order_id_prefix + "1"]
 
-            order_url = self.configure_partially_filled_order_status_response(
-                order=order,
-                mock_api=mock_api)
-
             if self.is_order_fill_http_update_included_in_status_update:
                 trade_url = self.configure_partial_fill_trade_response(
                     order=order,
                     mock_api=mock_api)
+
+            order_url = self.configure_partially_filled_order_status_response(
+                order=order,
+                mock_api=mock_api)
 
             self.assertTrue(order.is_open)
 
@@ -1289,14 +1291,14 @@ class AbstractExchangeConnectorTests:
             )
             order: InFlightOrder = self.exchange.in_flight_orders[self.client_order_id_prefix + "1"]
 
-            urls = self.configure_completely_filled_order_status_response(
-                order=order,
-                mock_api=mock_api)
-
             if self.is_order_fill_http_update_included_in_status_update:
                 trade_url = self.configure_erroneous_http_fill_trade_response(
                     order=order,
                     mock_api=mock_api)
+
+            urls = self.configure_completely_filled_order_status_response(
+                order=order,
+                mock_api=mock_api)
 
             # Since the trade fill update will fail we need to manually set the event
             # to allow the ClientOrderTracker to process the last status update
@@ -1560,11 +1562,6 @@ class AbstractExchangeConnectorTests:
 
             self.assertNotIn(order.client_order_id, self.exchange.in_flight_orders)
 
-            self.configure_completely_filled_order_status_response(
-                order=order,
-                mock_api=mock_api,
-                callback=lambda *args, **kwargs: request_sent_event.set())
-
             if self.is_order_fill_http_update_included_in_status_update:
                 trade_url = self.configure_full_fill_trade_response(
                     order=order,
@@ -1575,6 +1572,11 @@ class AbstractExchangeConnectorTests:
                 # to allow the ClientOrderTracker to process the last status update
                 order.completely_filled_event.set()
                 request_sent_event.set()
+
+            self.configure_completely_filled_order_status_response(
+                order=order,
+                mock_api=mock_api,
+                callback=lambda *args, **kwargs: request_sent_event.set())
 
             self.async_run_with_timeout(self.exchange._update_order_status())
             # Execute one more synchronization to ensure the async task that processes the update is finished
@@ -1724,7 +1726,7 @@ class AbstractExchangeConnectorTests:
                     request_call=cancel_request)
 
             self.assertIn(order.client_order_id, self.exchange._order_tracker.lost_orders)
-            self.assertEquals(0, len(self.order_cancelled_logger.event_log))
+            self.assertEqual(0, len(self.order_cancelled_logger.event_log))
             self.assertTrue(
                 any(
                     log.msg.startswith(f"Failed to cancel order {order.client_order_id}")

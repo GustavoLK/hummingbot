@@ -501,7 +501,7 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
 
     @property
     def expected_supported_order_types(self):
-        return [OrderType.LIMIT, OrderType.MARKET]
+        return [OrderType.LIMIT, OrderType.MARKET, OrderType.LIMIT_MAKER]
 
     @property
     def expected_trading_rule(self):
@@ -1825,7 +1825,7 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
                 request_call=cancel_request)
 
         self.assertIn(order.client_order_id, self.exchange._order_tracker.lost_orders)
-        self.assertEquals(0, len(self.order_cancelled_logger.event_log))
+        self.assertEqual(0, len(self.order_cancelled_logger.event_log))
         self.assertTrue(
             any(
                 log.msg.startswith(f"Failed to cancel order {order.client_order_id}")
@@ -1914,7 +1914,7 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
                 order=order,
                 request_call=cancel_request)
 
-        self.assertEquals(0, len(self.order_cancelled_logger.event_log))
+        self.assertEqual(0, len(self.order_cancelled_logger.event_log))
         self.assertTrue(
             any(
                 log.msg.startswith(f"Failed to cancel order {order.client_order_id}")
@@ -2010,7 +2010,7 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
             order=order_to_validate_request,
             request_call=order_request)
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
         failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
         self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
         self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -2389,7 +2389,8 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
             self.is_logged(
                 "INFO",
                 f"Created {OrderType.LIMIT.name} {TradeType.BUY.name} order {order_id} for "
-                f"{Decimal('100.000000')} to {PositionAction.CLOSE.name} a {self.trading_pair} position."
+                f"{Decimal('100.000000')} to {PositionAction.CLOSE.name} a {self.trading_pair} position "
+                f"at {Decimal('10000.0000')}."
             )
         )
 
@@ -2433,7 +2434,8 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
             self.is_logged(
                 "INFO",
                 f"Created {OrderType.LIMIT.name} {TradeType.SELL.name} order {order_id} for "
-                f"{Decimal('100.000000')} to {PositionAction.CLOSE.name} a {self.trading_pair} position."
+                f"{Decimal('100.000000')} to {PositionAction.CLOSE.name} a {self.trading_pair} position "
+                f"at {Decimal('10000.0000')}."
             )
         )
 
@@ -2482,7 +2484,8 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
             self.is_logged(
                 "INFO",
                 f"Created {OrderType.LIMIT.name} {TradeType.BUY.name} order {order_id} for "
-                f"{Decimal('100.000000')} to {PositionAction.OPEN.name} a {self.trading_pair} position."
+                f"{Decimal('100.000000')} to {PositionAction.OPEN.name} a {self.trading_pair} position "
+                f"at {Decimal('10000.0000')}."
             )
         )
 
@@ -2508,7 +2511,7 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
         self.assertNotIn(order_id_for_invalid_order, self.exchange.in_flight_orders)
         self.assertNotIn(order_id, self.exchange.in_flight_orders)
 
-        self.assertEquals(0, len(self.buy_order_created_logger.event_log))
+        self.assertEqual(0, len(self.buy_order_created_logger.event_log))
         failure_event: MarketOrderFailureEvent = self.order_failure_logger.event_log[0]
         self.assertEqual(self.exchange.current_timestamp, failure_event.timestamp)
         self.assertEqual(OrderType.LIMIT, failure_event.order_type)
@@ -2572,7 +2575,8 @@ class OkxPerpetualDerivativeTests(AbstractPerpetualDerivativeTests.PerpetualDeri
             self.is_logged(
                 "INFO",
                 f"Created {OrderType.LIMIT.name} {TradeType.SELL.name} order {order_id} for "
-                f"{Decimal('100.000000')} to {PositionAction.OPEN.name} a {self.trading_pair} position."
+                f"{Decimal('100.000000')} to {PositionAction.OPEN.name} a {self.trading_pair} position "
+                f"at {Decimal('10000.0000')}."
             )
         )
 
