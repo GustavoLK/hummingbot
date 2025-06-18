@@ -1,0 +1,14 @@
+LONG:
+  amount: 0.5
+  entry_price: 2650
+  exit_price: 2527
+  exit_with_loss: false
+SHORT:
+  amount: 0.5
+  entry_price: 2400
+  exit_price: 2527
+  exit_with_loss: true
+close_time: 2025-06-19 05:00:00
+dry_run: false
+leverage: 25
+status: WAITING

@@ -1,12 +1,13 @@
 import os
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from enum import Enum, auto
 from typing import Dict, List, Optional
 
 import yaml
 from pydantic import Field
 
+from glk.debug import enable_debugging
 from glk.Notificator import Notificator
 from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.connector.connector_base import ConnectorBase
@@ -16,16 +17,7 @@ from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy.strategy_v2_base import StrategyV2Base, StrategyV2ConfigBase
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction
 
-if os.environ.get('PYTHONDEV') == '1':
-    try:
-        import debugpy
-        debugpy.listen(("0.0.0.0", 5678))
-        debugpy.wait_for_client()
-    except RuntimeError as e:
-        if "listen() has already been called" in str(e):
-            print("Debugpy is already listening, continuing...")
-        else:
-            raise  # Re-raise if it's a different RuntimeError
+enable_debugging()
 
 
 class HedgingAction(Enum):
@@ -37,13 +29,16 @@ class HedgingAction(Enum):
 
 class HedgingStatus(Enum):
     WAITING = auto()
-    IN_TIME = auto()
-    TRAILING = auto()
-    OP_IN_PROGRESS = auto()
+    OPENING_LONG = auto()
+    OPENED_LONG = auto()
+    OPENING_SHORT = auto()
+    OPENED_SHORT = auto()
+    CLOSING_LONG = auto()
+    CLOSING_SHORT = auto()
     FINISHED = auto()
 
 
-class GLKHedgeExitConfig(StrategyV2ConfigBase):
+class GLKHedgeStrangleConfig(StrategyV2ConfigBase):
     script_file_name: str = Field(default_factory=lambda: os.path.basename(__file__))
     candles_config: List[CandlesConfig] = []
     conf_script: str = Field(
@@ -52,14 +47,14 @@ class GLKHedgeExitConfig(StrategyV2ConfigBase):
             prompt_on_new=True))
 
 
-class GLKHedgeExit(StrategyV2Base):
+class GLKHedgeStrangle(StrategyV2Base):
     pair = None
     conf_file = None
     config_readed = None
     last_conf_timestamp = None
     current_price = None
 
-    def __init__(self, connectors: Dict[str, ConnectorBase], config: Optional[GLKHedgeExitConfig] = None):
+    def __init__(self, connectors: Dict[str, ConnectorBase], config: Optional[GLKHedgeStrangleConfig] = None):
         super().__init__(connectors, config)
         market = list(self.markets.values())[0]
         self.pair = list(market)[0]
@@ -70,56 +65,89 @@ class GLKHedgeExit(StrategyV2Base):
         self.config = config
         self.conf_file = f"conf/scripts/{config.conf_script}"
 
+
+
+
     def on_tick(self):
         self.read_file()
         # Update price once per cycle
         self.current_price = self.market_data_provider.get_price_by_type('hyperliquid_perpetual', self.pair, PriceType.MidPrice)
         self.process_pair()
 
+
+
+
     def process_pair(self):
-        if self.config_readed['status'] == HedgingStatus.FINISHED or self.config_readed['status'] == HedgingStatus.OP_IN_PROGRESS:
+        if self.config_readed['status'] in [HedgingStatus.FINISHED, HedgingStatus.OPENING_LONG, HedgingStatus.OPENING_SHORT, HedgingStatus.CLOSING_LONG, HedgingStatus.CLOSING_SHORT]:
             return
-
-        if self.config_readed['status'] == HedgingStatus.TRAILING:
-            exit_price = self.calculate_trailing_prices(self.current_price, self.config_readed['exit_price'], self.config_readed['ts_pct'])
-            if exit_price != self.config_readed['exit_price']:
-                self.logger().info(f"Trailing price updated from {self.config_readed['exit_price']} to {exit_price}")
-                self.config_readed['exit_price'] = exit_price
-                self.write_file(True)
-
-            if self.current_price < self.config_readed['exit_price']:
-                self.operate_pair(HedgingAction.CLOSE_LONG)
-
-            return
-
-        current_status = self.config_readed['status']
-        self.config_readed['status'] = HedgingStatus.WAITING
 
         current_time = datetime.now()
-        if current_time < self.config_readed['not_before']:
-            if current_status != self.config_readed['status']:
-                self.write_file(True)
-            return
-        self.config_readed['status'] = HedgingStatus.IN_TIME
+        current_status = self.config_readed['status']
 
-        if self.current_price <= self.config_readed['activation_price']:
-            if current_status != self.config_readed['status']:
+        if current_status == HedgingStatus.WAITING:
+            if current_time > self.config_readed['close_time']:
+                self.config_readed['status'] = HedgingStatus.FINISHED
                 self.write_file(True)
+                return
+            if self.current_price > self.config_readed['LONG']['entry_price']:
+                self.operate_pair(HedgingAction.OPEN_LONG)
+            elif self.current_price < self.config_readed['SHORT']['entry_price']:
+                self.operate_pair(HedgingAction.OPEN_SHORT)
             return
-        self.config_readed['status'] = HedgingStatus.TRAILING
 
-        if current_status != self.config_readed['status']:
-            self.write_file(True)
+        elif current_status == HedgingStatus.OPENED_LONG:
+            # Si llegue al valor del stop loss, cierro la posicion sin importar la hora de cierre
+            if self.current_price < self.config_readed['LONG']['exit_price']:
+                self.operate_pair(HedgingAction.CLOSE_LONG)
+                return
+            # Las demas acciones se solo se realizan luego de la hora de cierre
+            if current_time > self.config_readed['close_time']:
+                # Si estoy en ganancia, cierro la posicion
+                if self.current_price > self.config_readed['LONG']['entry_price']:
+                    self.operate_pair(HedgingAction.CLOSE_LONG)
+                    return
+                # Si estoy en perdida, cierro la posicion solo si esta configurado para hacerlo
+                elif self.config_readed['LONG']['exit_with_loss']:
+                    self.operate_pair(HedgingAction.CLOSE_LONG)
+                    return
+
+        elif current_status == HedgingStatus.OPENED_SHORT:
+            # Si llegue al valor del stop loss, cierro la posicion sin importar la hora de cierre
+            if self.current_price > self.config_readed['SHORT']['exit_price']:
+                self.operate_pair(HedgingAction.CLOSE_SHORT)
+                return
+            # Las demas acciones se solo se realizan luego de la hora de cierre
+            if current_time > self.config_readed['close_time']:
+                # Si estoy en ganancia, cierro la posicion
+                if self.current_price < self.config_readed['SHORT']['entry_price']:
+                    self.operate_pair(HedgingAction.CLOSE_SHORT)
+                    return
+                # Si estoy en perdida, cierro la posicion solo si esta configurado para hacerlo
+                elif self.config_readed['SHORT']['exit_with_loss']:
+                    self.operate_pair(HedgingAction.CLOSE_SHORT)
+                    return
+
+
+
 
     def operate_pair(self, action: HedgingAction):
-        if action == HedgingAction.OPEN_SHORT or action == HedgingAction.CLOSE_LONG:
-            self.config_readed['status'] = HedgingStatus.OP_IN_PROGRESS
-            self.write_file(True)
-            amount = self.config_readed['amount']
+        if action == HedgingAction.OPEN_LONG:
+            self.config_readed['status'] = HedgingStatus.OPENING_LONG
+            amount = self.config_readed['LONG']['amount']
+        elif action == HedgingAction.OPEN_SHORT:
+            self.config_readed['status'] = HedgingStatus.OPENING_SHORT
+            amount = self.config_readed['SHORT']['amount']
+        elif action == HedgingAction.CLOSE_LONG:
+            self.config_readed['status'] = HedgingStatus.CLOSING_LONG
+            amount = self.config_readed['LONG']['amount']
+        elif action == HedgingAction.CLOSE_SHORT:
+            self.config_readed['status'] = HedgingStatus.CLOSING_SHORT
+            amount = self.config_readed['SHORT']['amount']
 
-            if self.config_readed['dry_run']:
-                self._did_fill_order("SELL", amount, self.pair, self.current_price)
-            else:
+        if self.config_readed['dry_run']:
+            self._did_fill_order(action, amount, self.pair, self.current_price)
+        else:
+            if action == HedgingAction.OPEN_SHORT or action == HedgingAction.CLOSE_LONG:
                 self.sell(
                     connector_name='hyperliquid_perpetual',
                     trading_pair=self.pair,
@@ -127,6 +155,17 @@ class GLKHedgeExit(StrategyV2Base):
                     order_type=OrderType.MARKET,
                     price=self.current_price
                 )
+            elif action == HedgingAction.OPEN_LONG or action == HedgingAction.CLOSE_SHORT:
+                self.buy(
+                    connector_name='hyperliquid_perpetual',
+                    trading_pair=self.pair,
+                    amount=amount,
+                    order_type=OrderType.MARKET,
+                    price=self.current_price
+                )
+
+
+
 
     def did_fill_order(self, event: OrderFilledEvent):
         return self._did_fill_order(event.trade_type, event.amount, event.trading_pair, event.price)
@@ -137,32 +176,26 @@ class GLKHedgeExit(StrategyV2Base):
     # def did_complete_sell_order(self, event: SellOrderCompletedEvent):
     #     return self._did_fill_order("SELL", event.base_asset_amount, self.pair, event.quote_asset_amount)
 
+
+
+
     def _did_fill_order(self, trade_type, amount, trading_pair, price):
-        self.config_readed['status'] = HedgingStatus.FINISHED
+        if self.config_readed['status'] == HedgingStatus.OPENING_LONG:
+            self.config_readed['status'] = HedgingStatus.OPENED_LONG
+        elif self.config_readed['status'] == HedgingStatus.OPENING_SHORT:
+            self.config_readed['status'] = HedgingStatus.OPENED_SHORT
+        elif self.config_readed['status'] == HedgingStatus.CLOSING_LONG:
+            self.config_readed['status'] = HedgingStatus.WAITING
+        elif self.config_readed['status'] == HedgingStatus.CLOSING_SHORT:
+            self.config_readed['status'] = HedgingStatus.WAITING
         self.write_file(True)
 
         msg = f"{trade_type} {amount} of {trading_pair} at {price} Dry run: {self.config_readed['dry_run']}"
         Notificator().notify("Order filled. Dry run: " + str(self.config_readed['dry_run']), msg)
 
-    def calculate_trailing_prices(self, actual_price: float, actual_trigger_price, trailing_pct) -> Decimal:
-        """
-        Calculates the trailing prices based on the actual price, actual trigger price, and trailing percentage.
-        Only for long positions.
 
-        Parameters:
-        - actual_price (float): The current price of the asset.
-        - actual_trigger_price (Decimal): The price at which the trailing stop loss is triggered.
-        - trailing_pct (Decimal): The percentage below the actual price that the stop loss trails.
 
-        Returns:
-        - Decimal: The new trigger price based on the trailing stop loss calculation.
-        """
-        new_trigger_price = Decimal(str(actual_price)) * (Decimal('1') - trailing_pct)
 
-        if new_trigger_price > actual_trigger_price:
-            return new_trigger_price
-
-        return actual_trigger_price
 
     def read_file(self):
         if not os.path.exists(self.conf_file):
@@ -186,10 +219,12 @@ class GLKHedgeExit(StrategyV2Base):
                 self.last_conf_timestamp = datetime.now().timestamp()
 
                 self.config_readed['status'] = HedgingStatus[self.config_readed['status']]
-                self.config_readed['activation_price'] = Decimal(str(self.config_readed['activation_price']))
-                self.config_readed['exit_price'] = Decimal(str(self.config_readed['exit_price']))
-                self.config_readed['amount'] = Decimal(str(self.config_readed['amount']))
-                self.config_readed['ts_pct'] = Decimal(str(self.config_readed['ts_pct']))
+                self.config_readed['LONG']['entry_price'] = Decimal(str(self.config_readed['LONG']['entry_price']))
+                self.config_readed['LONG']['exit_price'] = Decimal(str(self.config_readed['LONG']['exit_price']))
+                self.config_readed['LONG']['amount'] = Decimal(str(self.config_readed['LONG']['amount']))
+                self.config_readed['SHORT']['entry_price'] = Decimal(str(self.config_readed['SHORT']['entry_price']))
+                self.config_readed['SHORT']['exit_price'] = Decimal(str(self.config_readed['SHORT']['exit_price']))
+                self.config_readed['SHORT']['amount'] = Decimal(str(self.config_readed['SHORT']['amount']))
 
                 if previous_leverage is None or previous_leverage != self.config_readed['leverage']:
                     self.set_leverage('', self.pair, self.config_readed['leverage'])
@@ -200,18 +235,8 @@ class GLKHedgeExit(StrategyV2Base):
                 print(f"Error reading YAML file: {e}")
                 return False
 
-    def _convert_to_decimal(self, data):
-        if isinstance(data, dict):
-            return {key: self._convert_to_decimal(value) for key, value in data.items()}
-        elif isinstance(data, list):
-            return [self._convert_to_decimal(item) for item in data]
-        elif isinstance(data, str):
-            try:
-                return Decimal(data)
-            except InvalidOperation:
-                return data
-        else:
-            return data
+
+
 
     def write_file(self, allow_reread: bool):
         """
@@ -243,6 +268,9 @@ class GLKHedgeExit(StrategyV2Base):
             self.logger().error(f"Error writing YAML file: {e}")
             return False
 
+
+
+
     def format_status(self) -> str:
         current_time = datetime.now()
         formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -250,13 +278,17 @@ class GLKHedgeExit(StrategyV2Base):
 
         format_status = f"{formatted_time}    Dry run: {self.config_readed['dry_run']}\n\n"
         format_status += f"{self.pair}\n\n"
-        format_status += f"Not before: {self.config_readed['not_before']}\n\n"
-        format_status += f"Activation price: {round(self.config_readed['activation_price'], 2)}\n\n"
-        format_status += f"Exit price: {round(self.config_readed['exit_price'], 2)}\n\n"
+        format_status += f"Close time: {self.config_readed['close_time']}\n\n"
+        format_status += f"LONG  Activation price: {round(self.config_readed['LONG']['entry_price'], 2)}  Exit price: {round(self.config_readed['LONG']['exit_price'], 2)}\n\n"
+        format_status += f"SHORT Activation price: {round(self.config_readed['SHORT']['entry_price'], 2)}  Exit price: {round(self.config_readed['SHORT']['exit_price'], 2)}\n\n"
         format_status += f"Price: {round(self.current_price, 2)} \n\n"
         format_status += f"Status: {pair_status}"
 
         return format_status
+
+
+
+
 
     def set_leverage(self, connector: str, trading_pair: str, leverage: int):
         connector_name = connector
@@ -268,9 +300,15 @@ class GLKHedgeExit(StrategyV2Base):
         perp_connector.set_leverage(trading_pair=trading_pair, leverage=leverage)
         self.logger().info(f"Setting leverage to {leverage}x for {connector_name} on {trading_pair}")
 
+
+
+
     def create_actions_proposal(self) -> List[CreateExecutorAction]:
         create_actions = []
         return create_actions
+
+
+
 
     def stop_actions_proposal(self) -> List[StopExecutorAction]:
         stop_actions = []

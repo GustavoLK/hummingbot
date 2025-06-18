@@ -1,0 +1,8 @@
+markets:
+  hyperliquid_perpetual:
+  - ETH-USD
+candles_config: []
+controllers_config: []
+config_update_interval: 60
+script_file_name: 011-HedgeStrangle.py
+conf_script: HedgeStrangle.yml
