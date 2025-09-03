@@ -92,3 +92,8 @@ coverage.xml
 # External SDK files
 /**/.chain_cookie
 /**/.injective_cookie
+
+# Symbolic links to external projects
+glk/domain
+glk/exceptions.py
+glk/model
