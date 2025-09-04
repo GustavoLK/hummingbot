@@ -124,7 +124,7 @@ class MetatraderCopier(StrategyV2Base):
         self.config_readed['status'] = StrategyStatus.EXECUTING
 
         if self.config_readed['dry_run']:
-            self._did_fill_order(action, amount, self.pair, self.current_price)
+            self._did_fill_order(None, action, amount, self.pair, self.current_price)
         else:
             if action == StrategyAction.SELL:
                 self.sell(
