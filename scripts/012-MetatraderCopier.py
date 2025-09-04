@@ -64,6 +64,10 @@ class MetatraderCopier(StrategyV2Base):
         self.conf_file = f"conf/scripts/{config.conf_script}"
         self.session = get_postgresql_session()
         self.current_trx = None
+        # para el calculo de precio promedio de ordenes market que se ejecutan por partes
+        self.orden_volume = Decimal(0)
+        self.acum_precio_volume = Decimal(0)
+        self.acum_volume = Decimal(0)
 
 
 
@@ -114,6 +118,9 @@ class MetatraderCopier(StrategyV2Base):
 
 
     def operate_pair(self, action: StrategyAction, amount: float):
+        self.orden_volume = amount
+        self.acum_volume = Decimal(0)
+        self.acum_precio_volume = Decimal(0)
         self.config_readed['status'] = StrategyStatus.EXECUTING
 
         if self.config_readed['dry_run']:
@@ -140,13 +147,19 @@ class MetatraderCopier(StrategyV2Base):
 
 
     def did_fill_order(self, event: OrderFilledEvent):
-        return self._did_fill_order(event.trade_type, event.amount, event.trading_pair, event.price)
+        return self._did_fill_order(event.order_id, event.trade_type, event.amount, event.trading_pair, event.price)
 
 
 
 
 
-    def _did_fill_order(self, trade_type, amount, trading_pair, price):
+    def _did_fill_order(self, order_id, trade_type, amount, trading_pair, price):
+        self.acum_precio_volume += Decimal(str(price)) * Decimal(str(amount))
+        self.acum_volume += Decimal(str(amount))
+        if self.acum_volume != self.orden_volume:
+            return
+        avg_price = self.acum_precio_volume / self.acum_volume
+
         if self.config_readed['status'] == StrategyStatus.EXECUTING:
             self.config_readed['status'] = StrategyStatus.RUNNING
         try:
@@ -154,8 +167,8 @@ class MetatraderCopier(StrategyV2Base):
             self.session.add(self.current_trx)
             self.current_trx.datetime = datetime.now()
             self.current_trx.status = TransactionStatus.EXECUTED.value
-            self.current_trx.price = price
-            self.current_trx.commission = Decimal(str(price)) * Decimal(str(amount)) * Decimal('-0.000432')  # 0.0432% de comision en hyperliquid
+            self.current_trx.price = avg_price
+            self.current_trx.commission = Decimal(str(price)) * Decimal(str(amount)) * Decimal('0.000432')  # 0.0432% de comision en hyperliquid
             self.current_trx.leverage = self.config_readed['leverage']
             self.session.commit()
             self.current_trx = None
