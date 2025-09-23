@@ -1,3 +1,4 @@
+import os
 import re
 import time
 from datetime import datetime
@@ -5,7 +6,7 @@ from datetime import datetime
 import dbus
 import pygame
 import pytz
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 # Initialize pygame mixer
@@ -59,14 +60,20 @@ class NotificationHandler(FileSystemEventHandler):
         # Get the interface
         interface = dbus.Interface(obj, dbus_interface='org.freedesktop.Notifications')
         # Send the notification
-        notification_id = interface.Notify("GLK Trading", replaces_id, "dialog-information", summary, body, actions, {},
-                                           10000)
+        interface.Notify("GLK Trading", replaces_id, "dialog-information", summary, body, actions, {},
+                         10000)
 
 
 def main():
+    # Create the signal file if it doesn't exist
+    signal_file = NotificationHandler.signal_file
+    if not os.path.exists(signal_file):
+        print(f"Creating signal file: {signal_file}")
+        with open(signal_file, 'w') as f:
+            f.write("")  # Create empty file
     event_handler = NotificationHandler()
     observer = Observer()
-    observer.schedule(event_handler, NotificationHandler.signal_file, recursive=False)
+    observer.schedule(event_handler, signal_file, recursive=False)
     observer.start()
 
     try:
